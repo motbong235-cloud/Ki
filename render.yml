@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: porpor-topup-bot
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python Kai.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_ID
+        sync: false
+      - key: STORE_NAME
+        value: "POR POR TOPUP"
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: porpor-topup-data
+      mountPath: /var/data
+      sizeGB: 1
