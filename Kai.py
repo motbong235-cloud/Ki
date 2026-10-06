@@ -61,6 +61,7 @@ ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 # ------------------------------------------------------------------
 ABA_API_KEY     = os.environ.get("ABA_API_KEY", "")
 ABA_MERCHANT_ID = os.environ.get("ABA_MERCHANT_ID", "")
+ABA_USERNAME    = os.environ.get("ABA_USERNAME", "")  # Khmer-System login username (បើ API ត្រូវការ)
 ABA_BASE_URL    = "https://khmer-system.com"
 ABA_CREATE_URL  = f"{ABA_BASE_URL}/aba-api/generate-qr"
 ABA_CHECK_URL   = f"{ABA_BASE_URL}/aba-api/check-payment"
@@ -70,19 +71,30 @@ _aba_session = requests.Session()
 _aba_session.headers.update({"Content-Type": "application/json", "Accept": "application/json"})
 
 
+def _aba_auth():
+    """Auth fields សម្រាប់ Khmer-System — បញ្ចូល username តែពេលមានកំណត់"""
+    auth = {
+        "api_key": ABA_API_KEY.strip(),
+        "merchant_id": ABA_MERCHANT_ID.strip(),
+    }
+    if ABA_USERNAME.strip():
+        auth["username"] = ABA_USERNAME.strip()
+    return auth
+
+
 def aba_create_qr(amount, bill_number, description="Top Up"):
     """បង្កើត QR តាម Khmer-System ABA PayWay"""
     if not ABA_ENABLED:
         return {"success": False, "error": "ABA not configured"}
     payload = {
-        "api_key": ABA_API_KEY,
-        "merchant_id": ABA_MERCHANT_ID,
+        **_aba_auth(),
         "amount": f"{float(amount):.2f}",
         "bill_number": str(bill_number),
         "description": description,
     }
     try:
         r = _aba_session.post(ABA_CREATE_URL, json=payload, timeout=20)
+        print(f"[aba_create_qr] HTTP {r.status_code} body={r.text[:500]}", flush=True)
         data = r.json()
         if data.get("status") == "success" or data.get("qr_image") or data.get("qr"):
             return {
@@ -106,8 +118,7 @@ def aba_check_payment(transaction_id):
     if not ABA_ENABLED:
         return {"paid": False, "error": "ABA not configured"}
     payload = {
-        "api_key": ABA_API_KEY,
-        "merchant_id": ABA_MERCHANT_ID,
+        **_aba_auth(),
         "transaction_id": str(transaction_id),
     }
     try:
