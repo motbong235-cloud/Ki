@@ -45,6 +45,8 @@ import json
 import time
 import hashlib
 import threading
+import base64
+import requests
 import telebot
 from telebot import types
 
@@ -53,6 +55,70 @@ from telebot import types
 # ------------------------------------------------------------------
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
+
+# ------------------------------------------------------------------
+# Khmer-System ABA PayWay (Auto Payment)
+# ------------------------------------------------------------------
+ABA_API_KEY     = os.environ.get("ABA_API_KEY", "")
+ABA_MERCHANT_ID = os.environ.get("ABA_MERCHANT_ID", "")
+ABA_BASE_URL    = "https://khmer-system.com"
+ABA_CREATE_URL  = f"{ABA_BASE_URL}/aba-api/generate-qr"
+ABA_CHECK_URL   = f"{ABA_BASE_URL}/aba-api/check-payment"
+ABA_ENABLED     = bool(ABA_API_KEY.strip() and ABA_MERCHANT_ID.strip())
+
+_aba_session = requests.Session()
+_aba_session.headers.update({"Content-Type": "application/json", "Accept": "application/json"})
+
+
+def aba_create_qr(amount, bill_number, description="Top Up"):
+    """បង្កើត QR តាម Khmer-System ABA PayWay"""
+    if not ABA_ENABLED:
+        return {"success": False, "error": "ABA not configured"}
+    payload = {
+        "api_key": ABA_API_KEY,
+        "merchant_id": ABA_MERCHANT_ID,
+        "amount": f"{float(amount):.2f}",
+        "bill_number": str(bill_number),
+        "description": description,
+    }
+    try:
+        r = _aba_session.post(ABA_CREATE_URL, json=payload, timeout=20)
+        data = r.json()
+        if data.get("status") == "success" or data.get("qr_image") or data.get("qr"):
+            return {
+                "success": True,
+                "qr_image": data.get("qr_image") or data.get("qr"),
+                "qr_string": data.get("qr_string") or data.get("qr_data", ""),
+                "transaction_id": data.get("transaction_id") or data.get("tran_id") or bill_number,
+                "raw": data,
+            }
+        return {
+            "success": False,
+            "error": data.get("message") or data.get("error") or "create QR failed",
+            "raw": data,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+def aba_check_payment(transaction_id):
+    """ពិនិត្យស្ថានភាព Payment"""
+    if not ABA_ENABLED:
+        return {"paid": False, "error": "ABA not configured"}
+    payload = {
+        "api_key": ABA_API_KEY,
+        "merchant_id": ABA_MERCHANT_ID,
+        "transaction_id": str(transaction_id),
+    }
+    try:
+        r = _aba_session.post(ABA_CHECK_URL, json=payload, timeout=15)
+        data = r.json()
+        status = str(data.get("status", "")).lower()
+        paid = status in ("success", "paid", "completed", "successful")
+        return {"paid": paid, "status": status, "amount": data.get("amount"), "raw": data}
+    except Exception as e:
+        return {"paid": False, "error": str(e)}
+
 STORE_NAME = os.environ.get("STORE_NAME", "POR POR TOPUP")  # ឈ្មោះហាង — hardcode ជា default តែអាច override តាម env
 # ID របស់ channel/group ដែលចង់ឲ្យ bot ផ្ញើសារជូនដំណឹងស្វ័យប្រវត្តិ ពេលមាន deposit
 # ឬ order ជោគជ័យ។ ដាក់ hardcode ត្រង់នេះផ្ទាល់ (negative number ឧ. -1001234567890
@@ -2784,8 +2850,103 @@ def _handle_email_order_reject(call, order_id):
 
 
 def handle_deposit(uid, chat_id, amount, user_obj, call=None):
-    """Deposit លុយចូល wallet ដោយប្រើ QR ដែល admin កំណត់ដោយដៃ + user ផ្ញើវិក័យប័ត្រមកផ្ទៀងផ្ទាត់ដោយដៃ"""
+    """Deposit — ព្យាយាម Auto ABA (Khmer-System) មុន, បើមិនបានទេ fallback Manual QR"""
+    if ABA_ENABLED:
+        ok = handle_deposit_aba(uid, chat_id, amount, user_obj, call=call)
+        if ok:
+            return
     handle_deposit_manual(uid, chat_id, amount, user_obj, call=call)
+
+
+def handle_deposit_aba(uid, chat_id, amount, user_obj, call=None):
+    """Auto Payment តាម Khmer-System ABA PayWay — បង្កើត QR + auto check"""
+    bill = f"DEP{uid}{int(time.time())}"
+    result = aba_create_qr(amount, bill, description=f"{STORE_NAME} TopUp")
+    if not result.get("success"):
+        try:
+            bot.send_message(
+                ADMIN_ID,
+                f"⚠️ ABA Create QR failed: {result.get('error')}\nUser {uid} amount ${amount:.2f}\nFallback → Manual QR",
+            )
+        except Exception:
+            pass
+        return False
+
+    tran_id = result["transaction_id"]
+    dep_id = f"ABA-{hashlib.md5(tran_id.encode()).hexdigest()[:8].upper()}"
+    create_pending_deposit(dep_id, uid, amount, dep_id)
+    update_pending_deposit(dep_id, method="aba", transaction_id=tran_id, status="pending")
+
+    # ផ្ញើ QR ទៅ user
+    qr_img = result.get("qr_image") or ""
+    caption = (
+        f"💳 <b>សូម Scan QR ដើម្បីបញ្ចូលលុយ</b>\n\n"
+        f"💵 ចំនួន: <b>${amount:.2f}</b>\n"
+        f"🔖 Ref: <code>{dep_id}</code>\n\n"
+        f"✅ បន្ទាប់ពីបង់ប្រាក់រួច លុយនឹងចូល Wallet <b>ស្វ័យប្រវត្តិ</b>\n"
+        f"⏳ QR មានសុពលភាពប្រហែល 3 នាទី"
+    )
+    try:
+        if isinstance(qr_img, str) and qr_img.startswith("data:image"):
+            # base64 data URI
+            b64 = qr_img.split(",", 1)[-1]
+            photo = io.BytesIO(base64.b64decode(b64))
+            photo.name = "qr.png"
+            bot.send_photo(chat_id, photo, caption=caption)
+        elif isinstance(qr_img, str) and qr_img.startswith("http"):
+            bot.send_photo(chat_id, qr_img, caption=caption)
+        elif isinstance(qr_img, str) and len(qr_img) > 100:
+            # raw base64
+            photo = io.BytesIO(base64.b64decode(qr_img))
+            photo.name = "qr.png"
+            bot.send_photo(chat_id, photo, caption=caption)
+        else:
+            bot.send_message(chat_id, caption + f"\n\n<code>{result.get('qr_string','')}</code>")
+    except Exception as e:
+        print(f"[handle_deposit_aba] send QR error: {e}", flush=True)
+        bot.send_message(chat_id, caption)
+
+    # Background poll payment status
+    def _poll():
+        for _ in range(40):  # ~2 នាទី (3s x 40)
+            time.sleep(3)
+            rec = get_pending_deposit(dep_id)
+            if not rec or rec.get("status") != "pending":
+                return
+            check = aba_check_payment(tran_id)
+            if check.get("paid"):
+                update_pending_deposit(dep_id, status="approved")
+                new_bal = update_balance(uid, amount)
+                try:
+                    bot.send_message(
+                        uid,
+                        t(uid, "deposit_approved", amount=amount, balance=new_bal)
+                        if "deposit_approved" in TR else
+                        f"✅ ការទូទាត់ត្រូវបានបញ្ជាក់! +${amount:.2f}\n💰 សមតុល្យថ្មី: ${new_bal:.2f}",
+                    )
+                except Exception:
+                    pass
+                try:
+                    bot.send_message(
+                        ADMIN_ID,
+                        f"✅ <b>ABA Auto Deposit</b>\n👤 <code>{uid}</code>\n💵 ${amount:.2f}\n🔖 {dep_id}",
+                    )
+                except Exception:
+                    pass
+                try:
+                    notify_public(f"✅ Deposit ${amount:.2f} (ABA Auto) — User {uid}")
+                except Exception:
+                    pass
+                return
+        # timeout
+        update_pending_deposit(dep_id, status="expired")
+        try:
+            bot.send_message(uid, f"⏳ QR ផុតកំណត់ហើយ។ សូម /deposit ម្តងទៀត បើអ្នកមិនទាន់បង់។")
+        except Exception:
+            pass
+
+    threading.Thread(target=_poll, daemon=True).start()
+    return True
 
 
 def handle_deposit_manual(uid, chat_id, amount, user_obj, call=None):
