@@ -7,7 +7,7 @@ POR POR TOPUP — Premium Account Shop Bot — CLASSIC (bot ធម្មតា, 
 លក់ account premium (ChatGPT, Netflix, Spotify, Office365, Canva ...) តាម Telegram
 - Stock គ្រប់គ្រងតាមឯកសារ .txt (មួយបន្ទាត់ = account មួយ)
 - ប្រព័ន្ធ Wallet (deposit លុយចូល -> ទិញអីវ៉ាន់ចេញ)
-- Deposit តាម QR ដោយដៃ (admin កំណត់ QR ទូទាត់ផ្ទាល់ខ្លួន + user ផ្ញើវិក័យប័ត្រ + admin ផ្ទៀងផ្ទាត់ដោយដៃ)
+- Deposit តាម QR Auto Payment (Khmer-System ABA) — លុយចូល Wallet ស្វ័យប្រវត្តិ
 - Admin panel ក្នុង Telegram ទាំងស្រុង (reply keyboard + inline button, គ្មាន Mini App)
 - Premium Emoji System (ស្រេចចិត្ត, /setupemoji, ត្រូវការ Telegram Premium)
 
@@ -22,7 +22,7 @@ POR POR TOPUP — Premium Account Shop Bot — CLASSIC (bot ធម្មតា, 
   (Referral: referred_by/ref_count/ref_earned/credit_referral_commission/REFERRAL_PERCENT)
   និង ជាវ Bot ផ្ទាល់ខ្លួន (Subscriber clone deploy engine: SUBS_FILE, deploy_subscriber_bot,
   /subscribe, /activatesub, /stopsub, /subs, /setrentalprice) ទាំងស្រុង ព្រោះលែងប្រើហើយ។
-  មុខងារផ្សេងទៀត (wallet, deposit KHQR/QR ដោយដៃ, stock, broadcast, premium emoji) នៅតែ
+  មុខងារផ្សេងទៀត (wallet, deposit QR Auto (ABA), stock, broadcast, premium emoji) នៅតែ
   ដំណើរការដូចដើមទាំងអស់។
 
 ចំណាំ (v16): បន្ថែម product ប្រភេទ "📧 Email (Admin ដាក់ដោយដៃ)" ជាជម្រើសទី ២ ក្នុងពេល
@@ -160,9 +160,6 @@ USERS_FILE = os.path.join(DATA_DIR, "users.json")
 PRODUCTS_FILE = os.path.join(DATA_DIR, "products.json")
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 EMOJI_FILE = os.path.join(DATA_DIR, "premium_emoji.json")
-# Deposit ប្រើ QR ផ្ទាល់ខ្លួនដែល admin កំណត់ដោយដៃ រួច user ត្រូវផ្ញើវិក័យប័ត្រ/screenshot
-# មកឲ្យ admin ត្រួតពិនិត្យ + បញ្ចូលលុយឲ្យដោយដៃ
-PAYMENT_CONFIG_FILE = os.path.join(DATA_DIR, "payment_config.json")
 PENDING_DEPOSITS_FILE = os.path.join(DATA_DIR, "pending_deposits.json")
 # ករណី product ប្រភេទ "email" (មិនមែនចែក account ពី stock file ទេ) — pending
 # រហូតដល់ admin ដាក់ Premium ចូល email របស់ user ដោយផ្ទាល់ រួចចុច 'រួចរាល់'
@@ -382,40 +379,6 @@ TR = {
         "zh": "✅ 已收到您的邮箱！\n\n🛍️ 商品: <b>{name}</b>\n💵 价格: ${price:.2f}（已从钱包扣除）\n"
               "📧 邮箱: <code>{email}</code>\n\n⏳ 请等待管理员为该邮箱开通会员（用时不长）— "
               "完成后机器人会立即通知您。",
-    },
-    "manual_no_qr_set": {
-        "km": "⚠️ ហាងនេះមិនទាន់កំណត់ QR ទូទាត់ដោយដៃនៅឡើយទេ។\nសូមទាក់ទង Admin ដើម្បីដាក់លុយចូល Wallet ជូន។",
-        "en": "⚠️ This shop hasn't set up a manual payment QR yet.\nPlease contact Admin to top up your Wallet directly.",
-        "zh": "⚠️ 本店尚未设置手动支付二维码。\n请直接联系管理员为您的钱包充值。",
-    },
-    "manual_qr_caption": {
-        "km": "💰 Deposit <b>${amount:.2f}</b>\n💳 វិធីទូទាត់: <b>QR ផ្ទាល់ខ្លួនរបស់ហាង</b>\n🔖 <code>{ref}</code>\n{note}\n"
-              "📱 សូម Scan QR ខាងក្រោម ហើយផ្ទេរប្រាក់ <b>${amount:.2f}</b>\n"
-              "📸 <b>ផ្ញើ screenshot វិក័យប័ត្រ (receipt) ត្រឡប់មកវិញនៅសារបន្ទាប់</b> ដើម្បីឲ្យ Admin ត្រួតពិនិត្យ ហើយបញ្ចូលលុយចូល Wallet ជូន\n"
-              "⏳ ការបញ្ចូលលុយនឹងចំណាយពេលបន្តិច ព្រោះត្រូវផ្ទៀងផ្ទាត់ដោយ Admin ដោយផ្ទាល់",
-        "en": "💰 Deposit <b>${amount:.2f}</b>\n💳 Payment method: <b>Shop's own QR</b>\n🔖 <code>{ref}</code>\n{note}\n"
-              "📱 Please scan the QR below and transfer <b>${amount:.2f}</b>\n"
-              "📸 <b>Send a screenshot of the receipt in your next message</b> so Admin can verify and top up your Wallet\n"
-              "⏳ This will take a bit longer since it's verified manually by Admin",
-        "zh": "💰 充值 <b>${amount:.2f}</b>\n💳 支付方式: <b>店铺专属二维码</b>\n🔖 <code>{ref}</code>\n{note}\n"
-              "📱 请扫描下方二维码并转账 <b>${amount:.2f}</b>\n"
-              "📸 <b>请在下一条消息中发送付款截图</b>，以便管理员核实并为您的钱包充值\n"
-              "⏳ 由于需要管理员人工核实，处理会稍慢一些",
-    },
-    "receipt_prompt_retry": {
-        "km": "📸 សូមផ្ញើជា <b>រូបភាព (Photo/Screenshot)</b> នៃវិក័យប័ត្រ ដែលបញ្ជាក់ថាបានទូទាត់រួច សូមផ្ញើម្តងទៀត:",
-        "en": "📸 Please send a <b>photo/screenshot</b> of the receipt confirming payment, please send again:",
-        "zh": "📸 请发送付款凭证的<b>照片/截图</b>，请重新发送：",
-    },
-    "receipt_expired": {
-        "km": "❌ សំណើដាក់លុយនេះលែងមានសុពលភាពទៀតហើយ សូម /deposit ម្តងទៀត",
-        "en": "❌ This deposit request is no longer valid, please /deposit again",
-        "zh": "❌ 此充值请求已失效，请重新 /deposit",
-    },
-    "receipt_received": {
-        "km": "✅ បានទទួលវិក័យប័ត្ររបស់អ្នករួចហើយ។ សូមរង់ចាំ Admin ត្រួតពិនិត្យ ហើយបញ្ចូលលុយចូល Wallet ជូន (មិនយូរប៉ុន្មាន)។",
-        "en": "✅ Your receipt has been received. Please wait for Admin to verify and top up your Wallet (shouldn't take long).",
-        "zh": "✅ 已收到您的付款凭证。请等待管理员核实并为钱包充值（用时不长）。",
     },
     "custom_amount_prompt": {
         "km": "✏️ សូមវាយបញ្ចូលចំនួនទឹកប្រាក់ដែលអ្នកចង់ដាក់ (USD)\nអប្បបរមា <b>${min:.2f}</b> — ឧទាហរណ៍: 0.5 ឬ 3.25",
@@ -1133,7 +1096,7 @@ def emoji_capture_step(message, glyph, label, page=0):
     reply_btn_texts = [lbl for d in BTN_LABELS.values() for lbl in d.values()] + [
         ADMIN_BTN_STATS, ADMIN_BTN_ADDPRODUCT, ADMIN_BTN_ADDSTOCK, ADMIN_BTN_DELSTOCK,
         ADMIN_BTN_DELPRODUCT, ADMIN_BTN_EDITPRODUCT, ADMIN_BTN_MSGUSER, ADMIN_BTN_BROADCAST,
-        ADMIN_BTN_EMOJI, ADMIN_BTN_SETQR,
+        ADMIN_BTN_EMOJI,
     ]
     if any(glyph in txt for txt in reply_btn_texts):
         bot.send_message(
@@ -1202,33 +1165,6 @@ def load_orders():
 
 def save_orders(d):
     _save(ORDERS_FILE, d)
-
-
-# ------------------------------------------------------------------
-# ------------------------------------------------------------------
-# MANUAL QR DEPOSIT
-# ------------------------------------------------------------------
-def load_payment_config():
-    return _load(PAYMENT_CONFIG_FILE, {"manual_qr_file_id": None, "manual_qr_note": ""})
-
-
-def save_payment_config(d):
-    _save(PAYMENT_CONFIG_FILE, d)
-
-
-def get_manual_qr():
-    cfg = load_payment_config()
-    return cfg.get("manual_qr_file_id"), cfg.get("manual_qr_note") or ""
-
-
-def set_manual_qr(file_id, note=None):
-    with _lock:
-        cfg = load_payment_config()
-        cfg["manual_qr_file_id"] = file_id
-        if note is not None:
-            cfg["manual_qr_note"] = note
-        save_payment_config(cfg)
-        return cfg
 
 
 NOTIFY_CONFIG_FILE = os.path.join(DATA_DIR, "notify_config.json")
@@ -1708,7 +1644,6 @@ ADMIN_BTN_MSGUSER = "📨 ផ្ញើសារទៅ User"
 ADMIN_BTN_FINDUSER = "🔍 មើល Data User"
 ADMIN_BTN_BROADCAST = "📢 ផ្ញើសារទៅគ្រប់គ្នា"
 ADMIN_BTN_EMOJI = "🎭 Setup Emoji"
-ADMIN_BTN_SETQR = "🖼 កំណត់ QR ទូទាត់ដោយដៃ"
 ADMIN_BTN_SETNOTIFY = "🔔 កំណត់ Channel ជូនដំណឹង"
 
 
@@ -1728,7 +1663,7 @@ def reply_kb_for(uid):
         kb.add(kbtn(ADMIN_BTN_DELPRODUCT, style="danger"), kbtn(ADMIN_BTN_EDITPRODUCT, style="primary"))
         kb.add(kbtn(ADMIN_BTN_MSGUSER, style="primary"), kbtn(ADMIN_BTN_BROADCAST, style="primary"))
         kb.add(kbtn(ADMIN_BTN_FINDUSER, style="primary"))
-        kb.add(kbtn(ADMIN_BTN_EMOJI, style="primary"), kbtn(ADMIN_BTN_SETQR, style="primary"))
+        kb.add(kbtn(ADMIN_BTN_EMOJI, style="primary"))
         kb.add(kbtn(ADMIN_BTN_SETNOTIFY, style="primary"))
     return kb
 
@@ -2857,12 +2792,26 @@ def _handle_email_order_reject(call, order_id):
 
 
 def handle_deposit(uid, chat_id, amount, user_obj, call=None):
-    """Deposit — ព្យាយាម Auto ABA (Khmer-System) មុន, បើមិនបានទេ fallback Manual QR"""
+    """Deposit — ប្រើតែ Auto QR Payment (Khmer-System ABA) ប៉ុណ្ណោះ, គ្មាន fallback"""
+    ok = False
     if ABA_ENABLED:
         ok = handle_deposit_aba(uid, chat_id, amount, user_obj, call=call)
-        if ok:
-            return
-    handle_deposit_manual(uid, chat_id, amount, user_obj, call=call)
+    else:
+        try:
+            bot.send_message(
+                ADMIN_ID,
+                "⚠️ ABA មិនទាន់កំណត់: សូមដាក់ ABA_API_KEY និង ABA_MERCHANT_ID ក្នុង env",
+            )
+        except Exception:
+            pass
+    if not ok:
+        try:
+            bot.send_message(
+                chat_id,
+                "❌ មិនអាចបង្កើត QR បានឥឡូវនេះ សូមព្យាយាមម្ដងទៀតក្រោយ ឬទាក់ទង Admin។",
+            )
+        except Exception as e:
+            print(f"[handle_deposit] notify user error: {e}", flush=True)
 
 
 def handle_deposit_aba(uid, chat_id, amount, user_obj, call=None):
@@ -2873,7 +2822,7 @@ def handle_deposit_aba(uid, chat_id, amount, user_obj, call=None):
         try:
             bot.send_message(
                 ADMIN_ID,
-                f"⚠️ ABA Create QR failed: {result.get('error')}\nUser {uid} amount ${amount:.2f}\nFallback → Manual QR",
+                f"⚠️ ABA Create QR failed: {result.get('error')}\nUser {uid} amount ${amount:.2f}",
             )
         except Exception:
             pass
@@ -2954,77 +2903,6 @@ def handle_deposit_aba(uid, chat_id, amount, user_obj, call=None):
 
     threading.Thread(target=_poll, daemon=True).start()
     return True
-
-
-def handle_deposit_manual(uid, chat_id, amount, user_obj, call=None):
-    qr_file_id, qr_note = get_manual_qr()
-    if not qr_file_id:
-        text = t(uid, "manual_no_qr_set")
-        if call:
-            bot.answer_callback_query(call.id, text, show_alert=True)
-        else:
-            bot.send_message(chat_id, text)
-        try:
-            bot.send_message(
-                ADMIN_ID,
-                f"🚨 <b>User ព្យាយាមដាក់លុយ ${amount:.2f} តែអ្នកមិនទាន់កំណត់ QR ទូទាត់ដោយដៃទេ!</b>\n"
-                f"👤 {public_user_label(user_obj)} (<code>{uid}</code>)\n\n"
-                f"សូមចុច 🖼 កំណត់ QR ទូទាត់ ដើម្បីកំណត់ QR របស់អ្នកជាមុនសិន។",
-            )
-        except Exception:
-            pass
-        return
-
-    ref = f"KZDEP{uid}{int(time.time())}"[:50]
-    ref_disp = f"DEP-{hashlib.md5(ref.encode()).hexdigest()[:8].upper()}"
-    dep_id = ref_disp
-
-    create_pending_deposit(dep_id, uid, amount, ref_disp)
-
-    note_line = f"\nℹ️ {html.escape(qr_note)}\n" if qr_note else ""
-    caption = t(uid, "manual_qr_caption", amount=amount, ref=ref_disp, note=note_line)
-    msg = bot.send_photo(chat_id, qr_file_id, caption=caption)
-    bot.register_next_step_handler(msg, _deposit_receipt_step, uid, chat_id, amount, dep_id, user_obj)
-
-
-def _deposit_receipt_step(message, uid, chat_id, amount, dep_id, user_obj):
-    rec = get_pending_deposit(dep_id)
-    if not rec or rec.get("status") != "pending":
-        bot.send_message(chat_id, t(uid, "receipt_expired"))
-        return
-    file_id = None
-    if message.photo:
-        file_id = message.photo[-1].file_id
-    elif message.document:
-        file_id = message.document.file_id
-    if not file_id:
-        msg = bot.send_message(chat_id, t(uid, "receipt_prompt_retry"))
-        bot.register_next_step_handler(msg, _deposit_receipt_step, uid, chat_id, amount, dep_id, user_obj)
-        return
-
-    update_pending_deposit(dep_id, receipt_file_id=file_id)
-    bot.send_message(chat_id, t(uid, "receipt_received"))
-
-    admin_kb = types.InlineKeyboardMarkup(row_width=2)
-    admin_kb.add(
-        pbtn(f"✅ បញ្ជាក់ +${amount:.2f}", callback_data=f"depapprove_{dep_id}", style="success"),
-        pbtn("❌ បដិសេធ", callback_data=f"depreject_{dep_id}", style="danger"),
-    )
-    try:
-        bot.send_photo(
-            ADMIN_ID,
-            file_id,
-            caption=(
-                f"📨 <b>វិក័យប័ត្រ Deposit ថ្មី</b>\n"
-                f"👤 {public_user_label(user_obj)} (<code>{uid}</code>)\n"
-                f"💵 ចំនួន: <b>${amount:.2f}</b>\n"
-                f"🔖 <code>{rec.get('ref')}</code>\n\n"
-                f"សូមផ្ទៀងផ្ទាត់ថាបានទទួលប្រាក់ពិតមុននឹងចុច 'បញ្ជាក់'។"
-            ),
-            reply_markup=admin_kb,
-        )
-    except Exception as e:
-        print(f"[_deposit_receipt_step] failed to notify admin: {e}", flush=True)
 
 
 def _handle_deposit_approve(call, dep_id):
@@ -3466,60 +3344,6 @@ def cmd_addbalance(message):
         )
     except Exception:
         bot.reply_to(message, "ទំរង់ត្រូវជា:\n/addbalance user_id|amount\nឧ. /addbalance 123456789|10")
-
-
-@bot.message_handler(func=lambda m: norm_label(m.text) == norm_label(ADMIN_BTN_SETQR))
-def reply_admin_setqr(message):
-    if not is_admin(message.from_user.id):
-        return
-    _start_setqr_flow(message.chat.id)
-
-
-@bot.message_handler(commands=["setqr"])
-def cmd_setqr(message):
-    if not is_admin(message.from_user.id):
-        return
-    _start_setqr_flow(message.chat.id)
-
-
-def _start_setqr_flow(chat_id):
-    qr_file_id, qr_note = get_manual_qr()
-    status = "✅ បច្ចុប្បន្នមាន QR កំណត់រួចហើយ" if qr_file_id else "⚠️ បច្ចុប្បន្នមិនទាន់កំណត់ QR ណាមួយទេ"
-    msg = bot.send_message(
-        chat_id,
-        f"🖼 <b>កំណត់ QR ទូទាត់ដោយដៃ</b>\n{status}\n\n"
-        f"ប្រើសម្រាប់ deposit — "
-        f"user scan QR នេះ ទូទាត់ រួចផ្ញើ screenshot មកឲ្យអ្នកបញ្ជាក់ដោយដៃ។\n\n"
-        f"📸 សូមផ្ញើជា <b>រូបភាព (Photo)</b> នៃ QR ដែលអ្នកចង់ប្រើ (ABA/Wing/ACLEDA... QR អីក៏បាន):",
-    )
-    bot.register_next_step_handler(msg, admin_setqr_photo_step)
-
-
-def admin_setqr_photo_step(message):
-    if not is_admin(message.from_user.id):
-        return
-    if not message.photo:
-        msg = bot.send_message(message.chat.id, "❌ សូមផ្ញើជា <b>រូបភាព (Photo)</b> នៃ QR មិនមែនឯកសារ/អត្ថបទទេ សូមផ្ញើម្តងទៀត:")
-        bot.register_next_step_handler(msg, admin_setqr_photo_step)
-        return
-    qr_file_id = message.photo[-1].file_id
-    msg = bot.send_message(
-        message.chat.id,
-        "✅ បានទទួលរូបភាព QR រួចហើយ។\n\n"
-        "ℹ️ សូមវាយបញ្ចូល <b>ចំណាំបន្ថែម</b> ដែលចង់ឲ្យ user ឃើញរួមជាមួយ QR (ឧ. ឈ្មោះគណនី/លេខទូរស័ព្ទ)\n"
-        "ឬវាយ <code>-</code> បើមិនចង់មានចំណាំបន្ថែម:",
-    )
-    bot.register_next_step_handler(msg, admin_setqr_note_step, qr_file_id)
-
-
-def admin_setqr_note_step(message, qr_file_id):
-    if not is_admin(message.from_user.id):
-        return
-    note = (message.text or "").strip()
-    if note == "-":
-        note = ""
-    set_manual_qr(qr_file_id, note=note)
-    bot.send_message(message.chat.id, "✅ បានកំណត់ QR ទូទាត់ដោយដៃរួចរាល់! User នឹងឃើញ QR នេះពេលចុច ➕ បញ្ចូលលុយ។")
 
 
 @bot.message_handler(func=lambda m: norm_label(m.text) == norm_label(ADMIN_BTN_SETNOTIFY))
