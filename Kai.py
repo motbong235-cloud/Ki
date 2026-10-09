@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Eing StoreKh Premium Account Shop Bot — CLASSIC (bot ធម្មតា, គ្មាន Mini App) [v17]
-(ឯកសារនេះឈ្មោះ premium_shop_bot_v17.py)
+Eing StoreKh Premium Account Shop Bot — CLASSIC (bot ធម្មតា, គ្មាន Mini App) [v19]
+(ឯកសារនេះឈ្មោះ premium_shop_bot_v19.py)
 ----------------------------------
 លក់ account premium (ChatGPT, Netflix, Spotify, Office365, Canva ...) តាម Telegram
 - Stock គ្រប់គ្រងតាមឯកសារ .txt (មួយបន្ទាត់ = account មួយ)
@@ -50,6 +50,16 @@ Eing StoreKh Premium Account Shop Bot — CLASSIC (bot ធម្មតា, គ�
   ការកំណត់ត្រូវបានរក្សាទុកក្នុង payment_config.json ដដែល (រួមជាមួយ manual QR)។ បើវិធីទូទាត់ទាំងអស់
   ត្រូវបានបិទក្នុងពេលតែមួយ user ព្យាយាម /deposit នឹងឃើញសារឲ្យទាក់ទង Admin ដោយផ្ទាល់ ជំនួសឲ្យការបង្ខំ
   ប្រើ Manual QR។
+
+ចំណាំ (v19): product ប្រភេទ 👤 Username អាចមាន "🎛 Options (ជម្រើស)" ច្រើន (ឧ. Telegram Premium
+  3 month - $13.10 / 6 month - $16.55 / 12 month - $29.55)។ ពេល user ចុច product នោះ
+  នឹងឃើញប៊ូតុងជម្រើសនីមួយៗ (ឈ្មោះ + តម្លៃ) + 🔙 Back + 🔄 ផ្ទុកឡើងវិញ។ Admin កំណត់បានតាម
+  ✏️ កែ Product -> 🎛 កែ Options (បន្ថែម/លុប) — product ដែលគ្មាន option ដំណើរការដូចដើម។
+
+ចំណាំ (v18): product ប្រភេទ "📧 Email" ដូរមកជា "👤 Username" — user ទិញរួច ផ្ញើ
+  <b>username</b> (ឧ. @username) ជំនួស email។ Admin ដាក់ Premium/Invite ចូល username នោះ
+  រួចចុច '✅ រួចរាល់'។ (key ខាងក្នុង delivery_type="email" និង field "email" រក្សាដដែល
+  ដើម្បីឲ្យ order/product ចាស់ៗនៅតែដំណើរការ)
 
 ចំណាំ (v17): ប្តូរឈ្មោះហាងទៅជា "Eing StoreKh" (STORE_NAME default) និងលុបមុខងារ Bakong KHQR
   (CamRapidPay) ចេញទាំងស្រុង — env vars CAMRAPIDPAY_API_KEY/CAMRAPID_CREATE_URL/CAMRAPID_CHECK_URL/
@@ -278,10 +288,13 @@ TR = {
         "zh": "❌ {name} 已缺货，请联系管理员",
     },
     "out_of_stock_btn": {"km": "❌ អស់ស្តុក — ទាក់ទង Admin", "en": "❌ Out of stock — Contact Admin", "zh": "❌ 缺货 — 联系管理员"},
+    "options_choose_prompt": {"km": "👇 សូមជ្រើសរើសជម្រើសខាងក្រោមដើម្បីទិញ:", "en": "👇 Please choose an option below to buy:", "zh": "👇 请选择下方选项购买："},
+    "refresh_btn": {"km": "🔄 ផ្ទុកឡើងវិញ", "en": "🔄 Refresh", "zh": "🔄 刷新"},
+    "price_from_label": {"km": "ចាប់ពី", "en": "from", "zh": "起"},
     "buy_now_btn": {"km": "✅ ទិញឥឡូវ", "en": "✅ Buy Now", "zh": "✅ 立即购买"},
     "back_btn": {"km": "🔙 ត្រឡប់ក្រោយ", "en": "🔙 Back", "zh": "🔙 返回"},
     "product_price_line": {"km": "💵 Price: <b>${price:.2f}</b>", "en": "💵 Price: <b>${price:.2f}</b>", "zh": "💵 价格: <b>${price:.2f}</b>"},
-    "product_delivery_email": {"km": "📧 Delivery: Email", "en": "📧 Delivery: Email", "zh": "📧 发货方式: 邮箱"},
+    "product_delivery_email": {"km": "👤 Delivery: Username", "en": "👤 Delivery: Username", "zh": "👤 发货方式: 用户名"},
     "product_stock_out_line": {"km": "➕ Stock: អស់ស្តុក", "en": "➕ Stock: Out of stock", "zh": "➕ 库存: 缺货"},
     "product_stock_line": {"km": "➕ Stock: {left} accounts", "en": "➕ Stock: {left} accounts", "zh": "➕ 库存: {left} 个账号"},
     "product_sold_line": {"km": "📊 Sold: {sold} accounts", "en": "📊 Sold: {sold} accounts", "zh": "📊 已售: {sold} 个"},
@@ -324,27 +337,27 @@ TR = {
         "zh": "✅ 购买成功！\n\n🛍️ 商品: <b>{name}</b> × {qty}\n💵 合计: ${total:.2f}\n\n🔑 <b>您的账号:</b>\n{accounts}",
     },
     "email_prompt": {
-        "km": "📧 <b>{icon} {name}</b> — ${price:.2f}\n\nសូមផ្ញើ <b>Email</b> គណនីរបស់អ្នក ដែលចង់ឲ្យ Admin ដាក់ Premium ចូល "
-              "(ឧ. <code>example@gmail.com</code>)\n\n⚠️ សូមប្រាកដថា Email ត្រឹមត្រូវ — Admin នឹងដាក់ Premium ដោយផ្ទាល់លើ email នេះ។",
-        "en": "📧 <b>{icon} {name}</b> — ${price:.2f}\n\nPlease send the <b>email</b> you want Admin to activate Premium on "
-              "(e.g. <code>example@gmail.com</code>)\n\n⚠️ Please make sure the email is correct — Admin will activate Premium directly on it.",
-        "zh": "📧 <b>{icon} {name}</b> — ${price:.2f}\n\n请发送您希望管理员开通会员的<b>邮箱</b>"
-              "（例如 <code>example@gmail.com</code>）\n\n⚠️ 请确认邮箱正确 — 管理员将直接在该邮箱上开通会员。",
+        "km": "👤 <b>{icon} {name}</b> — ${price:.2f}\n\nសូមផ្ញើ <b>Username</b> របស់អ្នក ដែលចង់ឲ្យ Admin ដាក់ Premium ចូល "
+              "(ឧ. <code>@username</code>)\n\n⚠️ សូមប្រាកដថា Username ត្រឹមត្រូវ — Admin នឹងដាក់ Premium ដោយផ្ទាល់លើ username នេះ។",
+        "en": "👤 <b>{icon} {name}</b> — ${price:.2f}\n\nPlease send the <b>username</b> you want Admin to activate Premium on "
+              "(e.g. <code>@username</code>)\n\n⚠️ Please make sure the username is correct — Admin will activate Premium directly on it.",
+        "zh": "👤 <b>{icon} {name}</b> — ${price:.2f}\n\n请发送您希望管理员开通会员的<b>用户名</b>"
+              "（例如 <code>@username</code>）\n\n⚠️ 请确认用户名正确 — 管理员将直接在该用户名上开通会员。",
     },
     "email_invalid": {
-        "km": "❌ Email មិនត្រឹមត្រូវទេ សូមផ្ញើម្តងទៀត (ឧ. <code>example@gmail.com</code>):",
-        "en": "❌ Invalid email, please send again (e.g. <code>example@gmail.com</code>):",
-        "zh": "❌ 邮箱无效，请重新发送（例如 <code>example@gmail.com</code>）：",
+        "km": "❌ Username មិនត្រឹមត្រូវទេ (អក្សរ/លេខ/_ ប៉ុណ្ណោះ, យ៉ាងតិច ៣ តួ) សូមផ្ញើម្តងទៀត (ឧ. <code>@username</code>):",
+        "en": "❌ Invalid username (letters/digits/_ only, min 3 chars), please send again (e.g. <code>@username</code>):",
+        "zh": "❌ 用户名无效（仅限字母/数字/下划线，至少3位），请重新发送（例如 <code>@username</code>）：",
     },
     "email_received": {
-        "km": "✅ បានទទួល Email របស់អ្នករួចហើយ!\n\n🛍️ Product: <b>{name}</b>\n💵 តម្លៃ: ${price:.2f} (កាត់ចេញពី Wallet រួច)\n"
-              "📧 Email: <code>{email}</code>\n\n⏳ សូមរង់ចាំ Admin ដាក់ Premium ចូល Email នេះ (មិនយូរប៉ុន្មាន) — "
+        "km": "✅ បានទទួល Username របស់អ្នករួចហើយ!\n\n🛍️ Product: <b>{name}</b>\n💵 តម្លៃ: ${price:.2f} (កាត់ចេញពី Wallet រួច)\n"
+              "👤 Username: <code>{email}</code>\n\n⏳ សូមរង់ចាំ Admin ដាក់ Premium ចូល Username នេះ (មិនយូរប៉ុន្មាន) — "
               "bot នឹងជូនដំណឹងទៅអ្នកភ្លាមៗពេលរួចរាល់។",
-        "en": "✅ Your email has been received!\n\n🛍️ Product: <b>{name}</b>\n💵 Price: ${price:.2f} (deducted from Wallet)\n"
-              "📧 Email: <code>{email}</code>\n\n⏳ Please wait for Admin to activate Premium on this email (shouldn't take long) — "
+        "en": "✅ Your username has been received!\n\n🛍️ Product: <b>{name}</b>\n💵 Price: ${price:.2f} (deducted from Wallet)\n"
+              "👤 Username: <code>{email}</code>\n\n⏳ Please wait for Admin to activate Premium on this username (shouldn't take long) — "
               "the bot will notify you as soon as it's done.",
-        "zh": "✅ 已收到您的邮箱！\n\n🛍️ 商品: <b>{name}</b>\n💵 价格: ${price:.2f}（已从钱包扣除）\n"
-              "📧 邮箱: <code>{email}</code>\n\n⏳ 请等待管理员为该邮箱开通会员（用时不长）— "
+        "zh": "✅ 已收到您的用户名！\n\n🛍️ 商品: <b>{name}</b>\n💵 价格: ${price:.2f}（已从钱包扣除）\n"
+              "👤 用户名: <code>{email}</code>\n\n⏳ 请等待管理员为该用户名开通会员（用时不长）— "
               "完成后机器人会立即通知您。",
     },
     "auto_qr_caption_aba": {
@@ -436,23 +449,23 @@ TR = {
         "zh": "❌ 金额低于最低限额 (${min:.2f})。点击 /deposit 重试",
     },
     "email_order_rejected": {
-        "km": "❌ ការកម្មង់ <b>{name}</b> (Email: <code>{email}</code>) មិនអាចដំណើរការបានទេ។\n"
+        "km": "❌ ការកម្មង់ <b>{name}</b> (Username: <code>{email}</code>) មិនអាចដំណើរការបានទេ។\n"
               "💰 លុយ ${price:.2f} ត្រូវបានសងត្រឡប់ចូល Wallet វិញ (សមតុល្យថ្មី: ${balance:.2f})\n\n"
               "សូមទាក់ទង Admin ប្រសិនបើមានចម្ងល់។",
-        "en": "❌ Your order for <b>{name}</b> (Email: <code>{email}</code>) could not be processed.\n"
+        "en": "❌ Your order for <b>{name}</b> (Username: <code>{email}</code>) could not be processed.\n"
               "💰 ${price:.2f} has been refunded to your Wallet (new balance: ${balance:.2f})\n\n"
               "Please contact Admin if you have any questions.",
-        "zh": "❌ 您的订单 <b>{name}</b>（邮箱: <code>{email}</code>）无法处理。\n"
+        "zh": "❌ 您的订单 <b>{name}</b>（用户名: <code>{email}</code>）无法处理。\n"
               "💰 ${price:.2f} 已退回您的钱包（新余额: ${balance:.2f}）\n\n"
               "如有疑问请联系管理员。",
     },
     "email_order_done": {
-        "km": "✅ <b>Premium ត្រូវបានដាក់រួចរាល់!</b>\n\n🛍️ Product: <b>{name}</b>\n📧 Email: <code>{email}</code>\n\n"
-              "🙏 សូមពិនិត្យ email/app របស់អ្នក។ អរគុណដែលទុកចិត្ត {store}!",
-        "en": "✅ <b>Premium has been activated!</b>\n\n🛍️ Product: <b>{name}</b>\n📧 Email: <code>{email}</code>\n\n"
-              "🙏 Please check your email/app. Thank you for trusting {store}!",
-        "zh": "✅ <b>会员已开通！</b>\n\n🛍️ 商品: <b>{name}</b>\n📧 邮箱: <code>{email}</code>\n\n"
-              "🙏 请查看您的邮箱/应用。感谢您对 {store} 的信任！",
+        "km": "✅ <b>Premium ត្រូវបានដាក់រួចរាល់!</b>\n\n🛍️ Product: <b>{name}</b>\n👤 Username: <code>{email}</code>\n\n"
+              "🙏 សូមពិនិត្យ account/app របស់អ្នក។ អរគុណដែលទុកចិត្ត {store}!",
+        "en": "✅ <b>Premium has been activated!</b>\n\n🛍️ Product: <b>{name}</b>\n👤 Username: <code>{email}</code>\n\n"
+              "🙏 Please check your account/app. Thank you for trusting {store}!",
+        "zh": "✅ <b>会员已开通！</b>\n\n🛍️ 商品: <b>{name}</b>\n👤 用户名: <code>{email}</code>\n\n"
+              "🙏 请查看您的账号/应用。感谢您对 {store} 的信任！",
     },
     "deposit_approved": {
         "km": "✅ ការទូទាត់ត្រូវបានបញ្ជាក់! បញ្ចូល <b>${amount:.2f}</b> ចូល wallet។\n💰 សមតុល្យថ្មី: <b>${balance:.2f}</b>\n\n"
@@ -2206,6 +2219,34 @@ def main_menu_kb(uid):
     return kb
 
 
+def product_options(p):
+    """បញ្ជី option របស់ product (តែ product ប្រភេទ Username ប៉ុណ្ណោះដែលប្រើ options)"""
+    if not p or p.get("delivery_type") != "email":
+        return []
+    out = []
+    for o in (p.get("options") or []):
+        try:
+            name = str(o.get("name", "")).strip()
+            price = float(o.get("price"))
+        except Exception:
+            continue
+        if name and price > 0:
+            out.append({"name": name, "price": price})
+    return out
+
+
+def _resolve_option(product, opt_idx):
+    """បម្លែង (product, idx) -> (ឈ្មោះពេញ, តម្លៃ). គ្មាន option -> (ឈ្មោះ product, តម្លៃ product).
+    idx មិនត្រឹមត្រូវ -> None"""
+    if opt_idx is None:
+        return product["name"], product["price"]
+    opts = product_options(product)
+    if not (0 <= opt_idx < len(opts)):
+        return None
+    o = opts[opt_idx]
+    return f"{product['name']} - {o['name']}", o["price"]
+
+
 def products_kb(uid):
     lang = get_user_lang(uid)
     products = load_products()
@@ -2230,7 +2271,11 @@ def products_kb(uid):
         # កាត់ឈ្មោះឲ្យខ្លីដើម្បី button text ≤64 chars (icon + price ប្រហែល 15 chars)
         if len(name_disp) > 40:
             name_disp = name_disp[:37] + "…"
-        if is_email_type or left > 0:
+        opts = product_options(p)
+        if opts:
+            min_price = min(o["price"] for o in opts)
+            label = f"{icon} {name_disp} - {t(uid, 'price_from_label')} ${min_price:.2f}"
+        elif is_email_type or left > 0:
             label = f"{icon} {name_disp} - ${p['price']:.2f}"
         else:
             label = f"× {icon} {name_disp} - {t(uid, 'out_of_stock_label')}"
@@ -2283,6 +2328,32 @@ def show_product_detail(call, product_key):
     description = (p.get("description") or "").strip()
     out_of_stock = (not is_email_type) and stock_count(product_key) <= 0
     sold = p.get("sold", 0)
+
+    options = product_options(p)
+    if options:
+        lines = [f"🛒 {icon} <b>{p['name']}</b>"]
+        if description:
+            lines.append(f"<blockquote>{html.escape(description)}</blockquote>")
+        lines.append(t(uid, "options_choose_prompt"))
+        caption = "\n".join(lines)
+        kb = types.InlineKeyboardMarkup(row_width=1)
+        for i, o in enumerate(options):
+            kb.add(pbtn(f"{o['name']} - ${o['price']:.2f}", callback_data=f"buyvar_{product_key}_{i}", style="success"))
+        kb.row(
+            pbtn(t(uid, "back_btn"), callback_data="menu_shop", style="primary"),
+            pbtn(t(uid, "refresh_btn"), callback_data=f"buyopt_{product_key}", style="primary"),
+        )
+        photo_file_id = p.get("photo_file_id")
+        if photo_file_id:
+            bot.answer_callback_query(call.id)
+            try:
+                bot.send_photo(chat_id, photo_file_id, caption=caption, reply_markup=kb)
+            except Exception as e:
+                print(f"[show_product_detail] send_photo failed: {e}", flush=True)
+                bot.send_message(chat_id, caption, reply_markup=kb)
+        else:
+            _safe_edit_or_send(call, caption, kb)
+        return
 
     lines = [f"{icon} <b>{p['name']}</b>", ""]
     lines.append(t(uid, "product_price_line", price=p["price"]))
@@ -2585,6 +2656,7 @@ def admin_edit_field_kb(key):
         pbtn("🖼 កែ រូបភាព", callback_data=f"admeditphoto_{key}", style="primary"),
         pbtn("📝 កែ Description", callback_data=f"admeditdesc_{key}", style="primary"),
         pbtn("🔁 កែ Delivery Type", callback_data=f"admeditdelivery_{key}", style="primary"),
+        pbtn("🎛 កែ Options (ជម្រើស)", callback_data=f"admeditopts_{key}", style="primary"),
         pbtn("🔙 បោះបង់", callback_data="admcancel", style="danger"),
     )
     return kb
@@ -2595,9 +2667,79 @@ def admin_edit_delivery_kb(key, current_type):
     if current_type != "stock":
         kb.add(pbtn("📦 ប្តូរទៅ Stock file (step 1, កំណត់ចំនួន)", callback_data=f"admsetdeliverystock_{key}", style="primary"))
     if current_type != "email":
-        kb.add(pbtn("📧 ប្តូរទៅ Email (step 2, unlimited)", callback_data=f"admsetdeliveryemail_{key}", style="primary"))
+        kb.add(pbtn("👤 ប្តូរទៅ Username (step 2, unlimited)", callback_data=f"admsetdeliveryemail_{key}", style="primary"))
     kb.add(pbtn("🔙 បោះបង់", callback_data="admcancel", style="danger"))
     return kb
+
+
+def admin_options_view(key):
+    """(text, kb) សម្រាប់ម៉ឺនុយ កែ Options របស់ product"""
+    products = load_products()
+    p = products.get(key)
+    if not p:
+        return "❌ Product មិនត្រឹមត្រូវ", None
+    opts = product_options(p) if p.get("delivery_type") == "email" else (p.get("options") or [])
+    lines = [f"🎛 <b>Options — {html.escape(p['name'])}</b>", ""]
+    if p.get("delivery_type") != "email":
+        lines.append("⚠️ Options ប្រើបានតែ product ប្រភេទ 👤 Username ប៉ុណ្ណោះ (ប្តូរតាម 🔁 កែ Delivery Type)។\n")
+    if opts:
+        for i, o in enumerate(opts, 1):
+            lines.append(f"{i}. {html.escape(str(o.get('name')))} — ${float(o.get('price', 0)):.2f}")
+    else:
+        lines.append("— មិនទាន់មាន option ទេ (user ឃើញតម្លៃ product ធម្មតា)")
+    lines.append("\n👇 ចុច 🗑 ដើម្បីលុប option ឬ ➕ ដើម្បីបន្ថែម")
+    kb = types.InlineKeyboardMarkup(row_width=1)
+    for i, o in enumerate(opts):
+        kb.add(pbtn(f"🗑 {o.get('name')} - ${float(o.get('price', 0)):.2f}", callback_data=f"admoptdel_{key}_{i}", style="danger"))
+    kb.add(pbtn("➕ បន្ថែម Option", callback_data=f"admoptadd_{key}", style="success"))
+    if opts:
+        kb.add(pbtn("🧹 លុប Options ទាំងអស់", callback_data=f"admoptclr_{key}", style="danger"))
+    kb.add(pbtn("🔙 បោះបង់", callback_data="admcancel", style="primary"))
+    return "\n".join(lines), kb
+
+
+def editproduct_step_options(message, key):
+    """Admin ផ្ញើ option ម្តងមួយបន្ទាត់ ឬច្រើនបន្ទាត់: 'ឈ្មោះ | តម្លៃ'"""
+    if not is_admin(message.from_user.id):
+        return
+    products = load_products()
+    if key not in products:
+        bot.reply_to(message, "❌ Product មិនត្រឹមត្រូវ (ប្រហែលជាត្រូវបានលុបទៅហើយ)")
+        return
+    added, bad = [], []
+    for line in (message.text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if "|" not in line:
+            bad.append(line)
+            continue
+        name, price_s = line.rsplit("|", 1)
+        name = name.strip()
+        try:
+            price = float(price_s.strip().lstrip("$"))
+            if price <= 0 or not name:
+                raise ValueError
+        except Exception:
+            bad.append(line)
+            continue
+        added.append({"name": name[:60], "price": round(price, 2)})
+    if not added:
+        msg = bot.send_message(
+            message.chat.id,
+            "❌ ទម្រង់មិនត្រឹមត្រូវ។ សូមផ្ញើជា <code>ឈ្មោះ | តម្លៃ</code> (ម្តងមួយបន្ទាត់)\n"
+            "ឧ. <code>Telegram premium gift 3 month | 13.10</code>",
+        )
+        bot.register_next_step_handler(msg, editproduct_step_options, key)
+        return
+    cur = list(products[key].get("options") or [])
+    cur.extend(added)
+    products[key]["options"] = cur[:20]  # ដាក់កំណត់ ២០ option
+    save_products(products)
+    note = f"\n⚠️ រំលង {len(bad)} បន្ទាត់ដែលទម្រង់ខុស" if bad else ""
+    bot.send_message(message.chat.id, f"✅ បានបន្ថែម {len(added)} option រួចហើយ{note}")
+    text, kb = admin_options_view(key)
+    bot.send_message(message.chat.id, text, reply_markup=kb)
 
 
 def editproduct_step_name(message, key):
@@ -3002,11 +3144,17 @@ def callback_router(call):
         product_key = data.split("_", 1)[1]
         show_product_detail(call, product_key)
 
+    elif data.startswith("buyvar_"):
+        key, idx_s = data[len("buyvar_"):].rsplit("_", 1)
+        start_buy_email_flow(call, key, int(idx_s))
+
     elif data.startswith("buydetailok_"):
         product_key = data[len("buydetailok_"):]
         products = load_products()
         product = products.get(product_key)
-        if product and product.get("delivery_type") == "email":
+        if product and product_options(product):
+            show_product_detail(call, product_key)
+        elif product and product.get("delivery_type") == "email":
             start_buy_email_flow(call, product_key)
         else:
             show_qty_picker(call, product_key, 1)
@@ -3281,6 +3429,60 @@ def callback_router(call):
         )
         bot.register_next_step_handler(call.message, editproduct_step_description, key)
 
+    elif data.startswith("admeditopts_"):
+        if not is_admin(uid):
+            return
+        key = data.split("_", 1)[1]
+        text, kb = admin_options_view(key)
+        if kb is None:
+            bot.answer_callback_query(call.id, text, show_alert=True)
+            return
+        bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=kb)
+
+    elif data.startswith("admoptadd_"):
+        if not is_admin(uid):
+            return
+        key = data.split("_", 1)[1]
+        if key not in load_products():
+            bot.answer_callback_query(call.id, "❌ Product មិនត្រឹមត្រូវ", show_alert=True)
+            return
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(
+            chat_id,
+            "➕ សូមផ្ញើ option ជាទម្រង់ <code>ឈ្មោះ | តម្លៃ</code>\n"
+            "អាចផ្ញើច្រើនបន្ទាត់ក្នុងសារតែមួយ ឧ.\n\n"
+            "<code>Telegram premium gift 3 month | 13.10\n"
+            "Telegram premium gift 6 month | 16.55\n"
+            "Telegram premium gift 12 month | 29.55</code>",
+        )
+        bot.register_next_step_handler(msg, editproduct_step_options, key)
+
+    elif data.startswith("admoptdel_"):
+        if not is_admin(uid):
+            return
+        key, idx_s = data[len("admoptdel_"):].rsplit("_", 1)
+        products = load_products()
+        if key in products:
+            opts = list(products[key].get("options") or [])
+            i = int(idx_s)
+            if 0 <= i < len(opts):
+                opts.pop(i)
+                products[key]["options"] = opts
+                save_products(products)
+        text, kb = admin_options_view(key)
+        bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=kb)
+
+    elif data.startswith("admoptclr_"):
+        if not is_admin(uid):
+            return
+        key = data.split("_", 1)[1]
+        products = load_products()
+        if key in products:
+            products[key]["options"] = []
+            save_products(products)
+        text, kb = admin_options_view(key)
+        bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=kb)
+
     elif data.startswith("admeditdelivery_"):
         if not is_admin(uid):
             return
@@ -3290,7 +3492,7 @@ def callback_router(call):
             bot.answer_callback_query(call.id, "❌ Product មិនត្រឹមត្រូវ", show_alert=True)
             return
         cur_type = products[key].get("delivery_type", "stock")
-        cur_label = "📦 Stock file (step 1)" if cur_type == "stock" else "📧 Email (step 2, unlimited)"
+        cur_label = "📦 Stock file (step 1)" if cur_type == "stock" else "👤 Username (step 2, unlimited)"
         bot.edit_message_text(
             f"🔁 Delivery Type បច្ចុប្បន្ន: <b>{cur_label}</b>\n\nសូមជ្រើសរើសប្រភេទថ្មី:",
             chat_id, call.message.message_id,
@@ -3327,7 +3529,7 @@ def callback_router(call):
         products[key]["delivery_type"] = "email"
         save_products(products)
         bot.edit_message_text(
-            f"✅ បានប្តូរ '{products[key]['name']}' ទៅជា <b>📧 Email (step 2, unlimited)</b> រួចហើយ\n"
+            f"✅ បានប្តូរ '{products[key]['name']}' ទៅជា <b>👤 Username (step 2, unlimited)</b> រួចហើយ\n"
             f"ℹ️ Stock file ចាស់ (បើមាន) មិនត្រូវបានលុបទេ ព្រោះមិនប្រើទៀតហើយ។",
             chat_id, call.message.message_id,
         )
@@ -3457,11 +3659,19 @@ def handle_buy_wallet(call, product_key, qty=1):
                 print(f"[broadcast_low_stock] failed: {e}", flush=True)
 
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_USERNAME_RE = re.compile(r"^@?[A-Za-z0-9_.]{3,64}$")
 
 
-def start_buy_email_flow(call, product_key):
-    """ចាប់ផ្ដើមការទិញ product ប្រភេទ 'email' — សួរ email របស់ user ជាមុនសិន
+def _normalize_username(text):
+    """ដក space/@ ដែលលើស រួចដាក់ @ នៅមុខជានិច្ច (ឧ. smos_sne1 -> @smos_sne1)"""
+    u = (text or "").strip()
+    if not _USERNAME_RE.match(u):
+        return None
+    return "@" + u.lstrip("@")
+
+
+def start_buy_email_flow(call, product_key, opt_idx=None):
+    """ចាប់ផ្ដើមការទិញ product ប្រភេទ 'email' (ឥឡូវ = username) — សួរ username របស់ user ជាមុនសិន
     មុននឹងកាត់លុយ (kiểm balance មុន ដើម្បីកុំឲ្យសួរ email ចោលឥតប្រយោជន៍)"""
     uid = call.from_user.id
     chat_id = call.message.chat.id
@@ -3470,7 +3680,11 @@ def start_buy_email_flow(call, product_key):
     if not product:
         bot.answer_callback_query(call.id, t(uid, "product_invalid"), show_alert=True)
         return
-    price = product["price"]
+    resolved = _resolve_option(product, opt_idx)
+    if not resolved:
+        bot.answer_callback_query(call.id, t(uid, "product_invalid"), show_alert=True)
+        return
+    full_name, price = resolved
     user = get_user(uid)
     if user["balance"] < price:
         bot.answer_callback_query(
@@ -3482,20 +3696,20 @@ def start_buy_email_flow(call, product_key):
     bot.answer_callback_query(call.id)
     msg = bot.send_message(
         chat_id,
-        t(uid, "email_prompt", icon=resolve_icon(product.get("icon")), name=product["name"], price=price),
+        t(uid, "email_prompt", icon=resolve_icon(product.get("icon")), name=full_name, price=price),
     )
-    bot.register_next_step_handler(msg, buy_email_step_address, product_key)
+    bot.register_next_step_handler(msg, buy_email_step_address, product_key, opt_idx)
 
 
-def buy_email_step_address(message, product_key):
+def buy_email_step_address(message, product_key, opt_idx=None):
     if not message.from_user:
         return
     uid = message.from_user.id
     chat_id = message.chat.id
-    email = (message.text or "").strip()
-    if not _EMAIL_RE.match(email):
+    email = _normalize_username(message.text)  # (field ឈ្មោះ email រក្សាដើម្បី compat — តម្លៃជា username)
+    if not email:
         msg = bot.send_message(chat_id, t(uid, "email_invalid"))
-        bot.register_next_step_handler(msg, buy_email_step_address, product_key)
+        bot.register_next_step_handler(msg, buy_email_step_address, product_key, opt_idx)
         return
 
     products = load_products()
@@ -3503,18 +3717,22 @@ def buy_email_step_address(message, product_key):
     if not product:
         bot.send_message(chat_id, t(uid, "product_gone"))
         return
-    price = product["price"]
+    resolved = _resolve_option(product, opt_idx)
+    if not resolved:
+        bot.send_message(chat_id, t(uid, "product_gone"))
+        return
+    full_name, price = resolved
     ok, cur_balance = try_deduct_balance(uid, price)
     if not ok:
         bot.send_message(chat_id, t(uid, "balance_insufficient_alert", balance=cur_balance, price=price))
         return
 
     order_id = f"EM{uid}{int(time.time())}"[:60]
-    create_pending_email_order(order_id, uid, product_key, product["name"], price, email)
+    create_pending_email_order(order_id, uid, product_key, full_name, price, email)
 
     bot.send_message(
         chat_id,
-        t(uid, "email_received", name=product["name"], price=price, email=html.escape(email)),
+        t(uid, "email_received", name=full_name, price=price, email=html.escape(email)),
     )
 
     admin_kb = types.InlineKeyboardMarkup(row_width=1)
@@ -3526,12 +3744,12 @@ def buy_email_step_address(message, product_key):
         try:
             bot.send_message(
                 ADMIN_ID,
-                f"📧 <b>Order Email ថ្មី — ត្រូវការដាក់ Premium ដោយដៃ</b>\n\n"
-                f"🛍️ Product: <b>{product['name']}</b>\n"
+                f"👤 <b>Order Username ថ្មី — ត្រូវការដាក់ Premium ដោយដៃ</b>\n\n"
+                f"🛍️ Product: <b>{html.escape(full_name)}</b>\n"
                 f"💵 តម្លៃ: ${price:.2f}\n"
                 f"👤 User: {public_user_label(message.from_user)} (<code>{uid}</code>)\n"
-                f"📧 Email: <code>{html.escape(email)}</code>\n\n"
-                f"👉 សូមដាក់ Premium/Invite លើ email នេះឲ្យរួច រួចចុច '✅ រួចរាល់' ដើម្បីជូនដំណឹង user។",
+                f"👤 Username: <code>{html.escape(email)}</code>\n\n"
+                f"👉 សូមដាក់ Premium/Invite លើ username នេះឲ្យរួច រួចចុច '✅ រួចរាល់' ដើម្បីជូនដំណឹង user។",
                 reply_markup=admin_kb,
             )
         except Exception as e:
@@ -3577,7 +3795,7 @@ def _handle_email_order_done(call, order_id):
         pass
 
     notify_public(
-        f"📧 <b>Order Email ជោគជ័យ!</b>\n{rec['product']} — ${rec['price']:.2f}\n👤 {stored_user_label(uid)} (<code>{uid}</code>)"
+        f"👤 <b>Order Username ជោគជ័យ!</b>\n{rec['product']} — ${rec['price']:.2f}\n👤 {stored_user_label(uid)} (<code>{uid}</code>)"
     )
     bot.answer_callback_query(call.id, "✅ បានបញ្ជាក់ ហើយជូនដំណឹងទៅ user រួចរាល់")
     try:
@@ -3968,8 +4186,8 @@ def addproduct_step_icon(message, key, name, price):
         message,
         "4️⃣ សូមជ្រើសរើស <b>របៀបប្រគល់ (Delivery)</b> សម្រាប់ product នេះ:\n\n"
         "<b>1</b> — 📦 Stock file (auto) — bot ប្រគល់ account ពី stock .txt ភ្លាមៗ ពេល user ទិញ\n"
-        "<b>2</b> — 📧 Email (admin ដាក់ដោយដៃ) — user ផ្ញើ email គេផ្ទាល់មកឲ្យ bot, "
-        "អ្នកដាក់ Premium/Invite ចូល email នោះផ្ទាល់ រួចចុច '✅ រួចរាល់' ដើម្បីជូនដំណឹង user\n\n"
+        "<b>2</b> — 👤 Username (admin ដាក់ដោយដៃ) — user ផ្ញើ username គេមកឲ្យ bot, "
+        "អ្នកដាក់ Premium/Invite ចូល username នោះផ្ទាល់ រួចចុច '✅ រួចរាល់' ដើម្បីជូនដំណឹង user\n\n"
         "សូមវាយ <code>1</code> ឬ <code>2</code>:",
     )
     bot.register_next_step_handler(msg, addproduct_step_delivery, key, name, price, icon)
@@ -4041,11 +4259,11 @@ def addproduct_step_description(message, key, name, price, icon, delivery_type, 
         delivery_label = "📦 Stock file (Auto)"
     else:
         extra_hint = (
-            "ℹ️ Product នេះ <b>មិនប្រើ stock file</b> ទេ — user ទិញរួច ផ្ញើ email គេផ្ទាល់ "
-            "មកឲ្យ bot, អ្នកនឹងទទួលសារជូនដំណឹងភ្លាមៗ ដើម្បីដាក់ Premium ចូល email នោះដោយដៃ "
+            "ℹ️ Product នេះ <b>មិនប្រើ stock file</b> ទេ — user ទិញរួច ផ្ញើ username គេ "
+            "មកឲ្យ bot, អ្នកនឹងទទួលសារជូនដំណឹងភ្លាមៗ ដើម្បីដាក់ Premium ចូល username នោះដោយដៃ "
             "រួចចុច '✅ រួចរាល់' ដើម្បីជូនដំណឹង user។"
         )
-        delivery_label = "📧 Email (Admin ដាក់ដោយដៃ)"
+        delivery_label = "👤 Username (Admin ដាក់ដោយដៃ)"
 
     summary = (
         f"✅ <b>Product បន្ថែមរួចរាល់!</b>\n\n"
@@ -4272,7 +4490,7 @@ def cmd_stats(message):
     ]
     for key, p in products.items():
         if p.get("delivery_type") == "email":
-            stock_disp = "📧 Email (Unlimited)"
+            stock_disp = "👤 Username (Unlimited)"
         else:
             stock_disp = f"{stock_count(key)} នៅសល់"
         lines.append(f"  • {p['name']}: {stock_disp} / លក់រួច {p.get('sold', 0)} accounts")
