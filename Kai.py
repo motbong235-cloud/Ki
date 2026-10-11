@@ -294,6 +294,21 @@ TR = {
     "buy_now_btn": {"km": "✅ ទិញឥឡូវ", "en": "✅ Buy Now", "zh": "✅ 立即购买"},
     "back_btn": {"km": "🔙 ត្រឡប់ក្រោយ", "en": "🔙 Back", "zh": "🔙 返回"},
     "product_price_line": {"km": "💵 Price: <b>${price:.2f}</b>", "en": "💵 Price: <b>${price:.2f}</b>", "zh": "💵 价格: <b>${price:.2f}</b>"},
+    "discount_tag": {
+        "km": "🏷 បញ្ចុះតម្លៃពិសេសសម្រាប់អ្នក <b>-{percent}%</b> (ពី <s>${orig:.2f}</s>)",
+        "en": "🏷 Special discount for you <b>-{percent}%</b> (was <s>${orig:.2f}</s>)",
+        "zh": "🏷 您的专属折扣 <b>-{percent}%</b>（原价 <s>${orig:.2f}</s>）",
+    },
+    "discount_granted_msg": {
+        "km": "🎉 អ្នកទទួលបានការបញ្ចុះតម្លៃពិសេស <b>{percent}%</b> លើគ្រប់ផលិតផលក្នុងហាង! តម្លៃនឹងបង្ហាញស្វ័យប្រវត្តិពេលអ្នកចូលមើលហាង។",
+        "en": "🎉 You received a special <b>{percent}%</b> discount on all products! Prices update automatically in the shop.",
+        "zh": "🎉 您获得了全场 <b>{percent}%</b> 专属折扣！进入商店即可看到优惠价格。",
+    },
+    "discount_removed_msg": {
+        "km": "ℹ️ ការបញ្ចុះតម្លៃពិសេសរបស់អ្នកត្រូវបានបញ្ចប់។",
+        "en": "ℹ️ Your special discount has ended.",
+        "zh": "ℹ️ 您的专属折扣已结束。",
+    },
     "product_delivery_email": {"km": "👤 Delivery: Username", "en": "👤 Delivery: Username", "zh": "👤 发货方式: 用户名"},
     "product_stock_out_line": {"km": "➕ Stock: អស់ស្តុក", "en": "➕ Stock: Out of stock", "zh": "➕ 库存: 缺货"},
     "product_stock_line": {"km": "➕ Stock: {left} accounts", "en": "➕ Stock: {left} accounts", "zh": "➕ 库存: {left} 个账号"},
@@ -1676,6 +1691,52 @@ def try_deduct_balance(uid, amount):
         return True, users[uid_s]["balance"]
 
 
+# ------------------------------------------------------------------
+# USER DISCOUNT (Admin កំណត់ % បញ្ចុះតម្លៃឲ្យ user ណាម្នាក់ជាក់លាក់)
+# ------------------------------------------------------------------
+MAX_USER_DISCOUNT = 99.0  # % អតិបរមា (ការពារតម្លៃ $0)
+
+
+def get_user_discount(uid):
+    """% បញ្ចុះតម្លៃរបស់ user (0 បើគ្មាន)"""
+    try:
+        d = float(load_users().get(str(uid), {}).get("discount", 0) or 0)
+    except Exception:
+        return 0.0
+    return max(0.0, min(d, MAX_USER_DISCOUNT))
+
+
+def apply_discount(uid, price):
+    """តម្លៃក្រោយបញ្ចុះសម្រាប់ user នេះ (គ្មាន discount -> តម្លៃដើម)"""
+    d = get_user_discount(uid)
+    if d <= 0:
+        return round(float(price), 2)
+    return max(0.01, round(float(price) * (100.0 - d) / 100.0, 2))
+
+
+def set_user_discount(uid, percent):
+    """កំណត់ % បញ្ចុះតម្លៃ (0 = លុបចោល). Return False បើ user មិនទាន់ធ្លាប់ប្រើ bot"""
+    with _lock:
+        users = load_users()
+        uid_s = str(uid)
+        if uid_s not in users:
+            return False
+        if percent <= 0:
+            users[uid_s].pop("discount", None)
+        else:
+            users[uid_s]["discount"] = round(min(percent, MAX_USER_DISCOUNT), 2)
+        save_users(users)
+        return True
+
+
+def discount_line(uid, orig_price):
+    """បន្ទាត់ព័ត៌មាន discount សម្រាប់បង្ហាញក្នុង product detail (ទទេ បើគ្មាន)"""
+    d = get_user_discount(uid)
+    if d <= 0:
+        return ""
+    return t(uid, "discount_tag", percent=f"{d:g}", orig=orig_price)
+
+
 def stock_path(product_key):
     return os.path.join(STOCK_DIR, f"{product_key}.txt")
 
@@ -2273,10 +2334,10 @@ def products_kb(uid):
             name_disp = name_disp[:37] + "…"
         opts = product_options(p)
         if opts:
-            min_price = min(o["price"] for o in opts)
+            min_price = apply_discount(uid, min(o["price"] for o in opts))
             label = f"{icon} {name_disp} - {t(uid, 'price_from_label')} ${min_price:.2f}"
         elif is_email_type or left > 0:
-            label = f"{icon} {name_disp} - ${p['price']:.2f}"
+            label = f"{icon} {name_disp} - ${apply_discount(uid, p['price']):.2f}"
         else:
             label = f"× {icon} {name_disp} - {t(uid, 'out_of_stock_label')}"
         # ចុចមើលបានជានិច្ច (មិនថាអស់ស្តុក ឬ balance អ្វីទេ) — ព័ត៌មាន photo/price/description
@@ -2334,11 +2395,14 @@ def show_product_detail(call, product_key):
         lines = [f"🛒 {icon} <b>{p['name']}</b>"]
         if description:
             lines.append(f"<blockquote>{html.escape(description)}</blockquote>")
+        _dl = discount_line(uid, min(o["price"] for o in options))
+        if _dl:
+            lines.append(_dl)
         lines.append(t(uid, "options_choose_prompt"))
         caption = "\n".join(lines)
         kb = types.InlineKeyboardMarkup(row_width=1)
         for i, o in enumerate(options):
-            kb.add(pbtn(f"{o['name']} - ${o['price']:.2f}", callback_data=f"buyvar_{product_key}_{i}", style="success"))
+            kb.add(pbtn(f"{o['name']} - ${apply_discount(uid, o['price']):.2f}", callback_data=f"buyvar_{product_key}_{i}", style="success"))
         kb.row(
             pbtn(t(uid, "back_btn"), callback_data="menu_shop", style="primary"),
             pbtn(t(uid, "refresh_btn"), callback_data=f"buyopt_{product_key}", style="primary"),
@@ -2356,7 +2420,10 @@ def show_product_detail(call, product_key):
         return
 
     lines = [f"{icon} <b>{p['name']}</b>", ""]
-    lines.append(t(uid, "product_price_line", price=p["price"]))
+    lines.append(t(uid, "product_price_line", price=apply_discount(uid, p["price"])))
+    _dl = discount_line(uid, p["price"])
+    if _dl:
+        lines.append(_dl)
     if is_email_type:
         lines.append(t(uid, "product_delivery_email"))
     elif out_of_stock:
@@ -2406,10 +2473,11 @@ def show_qty_picker(call, product_key, qty):
     sold = p.get("sold", 0)
     text = (
         f"{icon} <b>{p['name']}</b>\n"
-        + t(uid, "qty_unit_price_line", price=p["price"], max_qty=max_qty, sold=sold)
+        + t(uid, "qty_unit_price_line", price=apply_discount(uid, p["price"]), max_qty=max_qty, sold=sold)
+        + (("\n" + discount_line(uid, p["price"])) if get_user_discount(uid) > 0 else "")
         + "\n\n" + t(uid, "qty_choose_prompt")
     )
-    _safe_edit_or_send(call, text, qty_pick_kb(uid, product_key, qty, max_qty, p["price"]))
+    _safe_edit_or_send(call, text, qty_pick_kb(uid, product_key, qty, max_qty, apply_discount(uid, p["price"])))
 
 
 def deposit_amount_kb(uid):
@@ -2453,6 +2521,7 @@ ADMIN_BTN_EMOJI = "🎭 Setup Emoji"
 ADMIN_BTN_SETQR = "🖼 កំណត់ QR ទូទាត់ដោយដៃ"
 ADMIN_BTN_SETNOTIFY = "🔔 កំណត់ Channel ជូនដំណឹង"
 ADMIN_BTN_PAYTOGGLE = "🔀 បិទ/បើក វិធីទូទាត់"
+ADMIN_BTN_DISCOUNT = "🏷 បញ្ចុះតម្លៃ User"
 
 
 def reply_kb_for(uid):
@@ -2470,7 +2539,7 @@ def reply_kb_for(uid):
         kb.add(kbtn(ADMIN_BTN_ADDSTOCK, style="success"), kbtn(ADMIN_BTN_DELSTOCK, style="danger"))
         kb.add(kbtn(ADMIN_BTN_DELPRODUCT, style="danger"), kbtn(ADMIN_BTN_EDITPRODUCT, style="primary"))
         kb.add(kbtn(ADMIN_BTN_MSGUSER, style="primary"), kbtn(ADMIN_BTN_BROADCAST, style="primary"))
-        kb.add(kbtn(ADMIN_BTN_FINDUSER, style="primary"))
+        kb.add(kbtn(ADMIN_BTN_FINDUSER, style="primary"), kbtn(ADMIN_BTN_DISCOUNT, style="success"))
         kb.add(kbtn(ADMIN_BTN_EMOJI, style="primary"), kbtn(ADMIN_BTN_SETQR, style="primary"))
         kb.add(kbtn(ADMIN_BTN_SETNOTIFY, style="primary"), kbtn(ADMIN_BTN_PAYTOGGLE, style="primary"))
     return kb
@@ -2919,6 +2988,91 @@ def reply_admin_msguser(message):
         cmd_msguser(message)
 
 
+# ------------------------------------------------------------------
+# ADMIN: កំណត់ការបញ្ចុះតម្លៃឲ្យ user ណាម្នាក់
+# ------------------------------------------------------------------
+DISCOUNT_HELP = (
+    "🏷 <b>បញ្ចុះតម្លៃ User</b>\n\n"
+    "ទំរង់: <code>user_id|ភាគរយ</code>\n"
+    "ឧ. <code>123456789|20</code> = បញ្ចុះ 20%\n"
+    "ដាក់ <code>0</code> ដើម្បីលុបការបញ្ចុះតម្លៃ (ឧ. <code>123456789|0</code>)\n"
+    f"អតិបរមា {MAX_USER_DISCOUNT:g}%\n\n"
+    "📋 មើលបញ្ជី: /discounts"
+)
+
+
+def _apply_discount_command(message, payload):
+    """payload = 'user_id|percent' -> កំណត់ + ជូនដំណឹង user + reply admin"""
+    try:
+        uid_s, pct_s = payload.split("|", 1)
+        target_uid = int(uid_s.strip())
+        percent = float(pct_s.strip().replace("%", ""))
+    except Exception:
+        bot.reply_to(message, "❌ ទំរង់មិនត្រឹមត្រូវ។\n\n" + DISCOUNT_HELP)
+        return False
+    if percent < 0 or percent > MAX_USER_DISCOUNT:
+        bot.reply_to(message, f"❌ ភាគរយត្រូវនៅចន្លោះ 0 – {MAX_USER_DISCOUNT:g}")
+        return False
+    if not set_user_discount(target_uid, percent):
+        bot.reply_to(message, f"❌ រក user <code>{target_uid}</code> មិនឃើញ (គាត់ត្រូវតែធ្លាប់ /start bot ជាមុនសិន)")
+        return False
+    label = stored_user_label(target_uid)
+    if percent <= 0:
+        bot.reply_to(message, f"✅ បានលុបការបញ្ចុះតម្លៃរបស់ {label} (<code>{target_uid}</code>)")
+        notice = t(target_uid, "discount_removed_msg")
+    else:
+        bot.reply_to(message, f"✅ បានកំណត់បញ្ចុះតម្លៃ <b>{percent:g}%</b> ជូន {label} (<code>{target_uid}</code>)")
+        notice = t(target_uid, "discount_granted_msg", percent=f"{percent:g}")
+    try:
+        bot.send_message(target_uid, notice)
+    except Exception:
+        pass  # user block bot — មិនអីទេ discount នៅតែមានសុពលភាព
+    return True
+
+
+@bot.message_handler(commands=["setdiscount"])
+def cmd_setdiscount(message):
+    if not is_admin(message.from_user.id):
+        return
+    parts = message.text.split(" ", 1)
+    if len(parts) < 2 or not parts[1].strip():
+        msg = bot.send_message(message.chat.id, DISCOUNT_HELP)
+        bot.register_next_step_handler(msg, discount_step_input)
+        return
+    _apply_discount_command(message, parts[1])
+
+
+def discount_step_input(message):
+    if not is_admin(message.from_user.id) or not message.text:
+        return
+    if message.text.startswith("/"):
+        return  # admin ប្តូរចិត្តចុច command ផ្សេង
+    if not _apply_discount_command(message, message.text):
+        msg = bot.send_message(message.chat.id, "សូមផ្ញើម្តងទៀត (ឬចុច /start ដើម្បីបោះបង់):")
+        bot.register_next_step_handler(msg, discount_step_input)
+
+
+@bot.message_handler(commands=["discounts"])
+def cmd_discounts(message):
+    if not is_admin(message.from_user.id):
+        return
+    users = load_users()
+    rows = [(uid, u) for uid, u in users.items() if u.get("discount")]
+    if not rows:
+        bot.send_message(message.chat.id, "📋 មិនទាន់មាន user ណាមានការបញ្ចុះតម្លៃទេ។\n\n" + DISCOUNT_HELP)
+        return
+    rows.sort(key=lambda r: -float(r[1].get("discount", 0)))
+    lines = [f"• <code>{uid}</code> {stored_user_label(uid)} — <b>{float(u['discount']):g}%</b>" for uid, u in rows]
+    bot.send_message(message.chat.id, f"📋 <b>User ដែលមានបញ្ចុះតម្លៃ ({len(rows)}):</b>\n\n" + "\n".join(lines))
+
+
+@bot.message_handler(func=lambda m: norm_label(m.text) == norm_label(ADMIN_BTN_DISCOUNT))
+def reply_admin_discount(message):
+    if is_admin(message.from_user.id):
+        msg = bot.send_message(message.chat.id, DISCOUNT_HELP)
+        bot.register_next_step_handler(msg, discount_step_input)
+
+
 FINDUSER_PAGE_SIZE = 8
 
 
@@ -2998,6 +3152,7 @@ def _render_finduser_detail(target_uid):
         f"├ ឈ្មោះ: {full_name}\n"
         f"├ សមតុល្យ: <b>${u.get('balance', 0):.2f}</b>\n"
         f"├ ការកម្មង់សរុប: {u.get('orders', 0)}\n"
+        f"├ 🏷 បញ្ចុះតម្លៃ: {('%g%%' % u['discount']) if u.get('discount') else '—'}\n"
         f"├ ចូលរួមថ្ងៃ: {u.get('joined_at') or '—'}\n"
         f"└ ចូលចុងក្រោយ: {u.get('last_seen') or '—'}\n\n"
         f"📦 <b>ការកម្មង់ចុងក្រោយ ({len(orders)} សរុប):</b>\n{orders_block}"
@@ -3581,7 +3736,7 @@ def handle_buy_wallet(call, product_key, qty=1):
         return
 
     product = products[product_key]
-    unit_price = product["price"]
+    unit_price = apply_discount(uid, product["price"])
     qty = max(1, qty)
     total_price = round(unit_price * qty, 2)
 
@@ -3685,6 +3840,7 @@ def start_buy_email_flow(call, product_key, opt_idx=None):
         bot.answer_callback_query(call.id, t(uid, "product_invalid"), show_alert=True)
         return
     full_name, price = resolved
+    price = apply_discount(uid, price)
     user = get_user(uid)
     if user["balance"] < price:
         bot.answer_callback_query(
@@ -3722,6 +3878,7 @@ def buy_email_step_address(message, product_key, opt_idx=None):
         bot.send_message(chat_id, t(uid, "product_gone"))
         return
     full_name, price = resolved
+    price = apply_discount(uid, price)
     ok, cur_balance = try_deduct_balance(uid, price)
     if not ok:
         bot.send_message(chat_id, t(uid, "balance_insufficient_alert", balance=cur_balance, price=price))
