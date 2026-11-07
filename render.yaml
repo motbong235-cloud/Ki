@@ -11,7 +11,7 @@ services:
       - key: ADMIN_ID
         sync: false
       - key: STORE_NAME
-        value: "POR POR TOPUP"
+        value: "ZEN PREMIUM"
       - key: DATA_DIR
         value: /var/data
     disk:
