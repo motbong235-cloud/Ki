@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: porpor-topup-bot
+    name: ki-premium-bot
     runtime: python
     plan: starter
     buildCommand: pip install -r requirements.txt
@@ -10,11 +10,15 @@ services:
         sync: false
       - key: ADMIN_ID
         sync: false
+      - key: ABA_API_KEY
+        sync: false
+      - key: ABA_MERCHANT_ID
+        sync: false
       - key: STORE_NAME
         value: "ZEN PREMIUM"
       - key: DATA_DIR
         value: /var/data
     disk:
-      name: porpor-topup-data
+      name: ki-bot-data
       mountPath: /var/data
       sizeGB: 1
