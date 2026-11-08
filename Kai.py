@@ -1898,7 +1898,9 @@ _last_aba_error = ""
 
 
 def aba_generate_qr(amount, username, _attempt=1):
-    """Create QR via POST /aba-api/generate-qr only (never /aba — Cloudflare 403 HTML)."""
+    """Create QR via POST /aba-api/generate-qr.
+    Khmer System is often slow → long read timeout + retries on ReadTimeout.
+    """
     global _last_aba_error
     key = _aba_clean(ABA_API_KEY)
     mid = _aba_clean(ABA_MERCHANT_ID)
@@ -1915,7 +1917,6 @@ def aba_generate_qr(amount, username, _attempt=1):
         _last_aba_error = "amount too small"
         return None
 
-    # Force correct endpoint even if env points at broken /aba
     url = (ABA_CREATE_URL or "").strip()
     if not url or url.rstrip("/").endswith("/aba") or "/aba-api/" not in url:
         url = f"{ABA_BASE_URL.rstrip('/')}/aba-api/generate-qr"
@@ -1937,19 +1938,21 @@ def aba_generate_qr(amount, username, _attempt=1):
         "Referer": "https://khmer-system.com/",
     }
 
+    # Provider often slow (20–40s). Allow override via env.
+    connect_to = int(os.environ.get("ABA_CONNECT_TIMEOUT", "10") or 10)
+    read_to = int(os.environ.get("ABA_READ_TIMEOUT", "60") or 60)
+    max_try = int(os.environ.get("ABA_CREATE_RETRIES", "4") or 4)
+
     try:
-        r = _http.post(url, json=payload, headers=headers, timeout=(6, 18))
+        print(f"[aba_generate_qr] attempt={_attempt}/{max_try} uname={uname} amt={amt} timeout={connect_to}/{read_to}", flush=True)
+        r = _http.post(url, json=payload, headers=headers, timeout=(connect_to, read_to))
         body = (r.text or "").strip()
-        # Cloudflare / WAF HTML
-        if body.lower().startswith(("<!doctype", "<html")) or r.status_code == 403 and "cloudflare" in body.lower():
+        if body.lower().startswith(("<!doctype", "<html")):
             _last_aba_error = (
-                f"HTTP {r.status_code} — gateway blocked (HTML). "
-                f"Check ABA_CREATE_URL is .../aba-api/generate-qr (not /aba)"
+                f"HTTP {r.status_code} — gateway returned HTML (use /aba-api/generate-qr)"
             )
-            # One retry with explicit generate-qr URL
-            if _attempt < 2:
-                time.sleep(0.4)
-                globals()["ABA_CREATE_URL"] = f"{ABA_BASE_URL.rstrip('/')}/aba-api/generate-qr"
+            if _attempt < max_try:
+                time.sleep(1.0)
                 return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
             return None
         try:
@@ -1971,18 +1974,23 @@ def aba_generate_qr(amount, username, _attempt=1):
         msg = data.get("message") or data.get("error") or data
         _last_aba_error = f"HTTP {r.status_code} [{code}]: {msg}"
 
-        if _attempt < 2 and (
+        if _attempt < max_try and (
             r.status_code in (402, 408, 429) or r.status_code >= 500
             or "QR_GENERATION_FAILED" in code.upper()
         ):
-            time.sleep(0.8)
+            time.sleep(1.2 * _attempt)
             return aba_generate_qr(amount, f"u{uname}"[-32:], _attempt=_attempt + 1)
         return None
     except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
         _last_aba_error = f"{type(e).__name__}: {e}"
-        if _attempt < 2:
-            time.sleep(0.5)
+        print(f"[aba_generate_qr] timeout/conn attempt={_attempt}: {e}", flush=True)
+        if _attempt < max_try:
+            time.sleep(1.5 * _attempt)
             return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
+        _last_aba_error = (
+            f"ReadTimeout after {max_try} tries (khmer-system.com slow). "
+            f"Try again in 1–2 min. detail={e}"
+        )
         return None
     except Exception as e:
         _last_aba_error = f"{type(e).__name__}: {e}"
