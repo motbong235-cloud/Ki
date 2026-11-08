@@ -4197,61 +4197,137 @@ def _handle_deposit_aba(uid, chat_id, amount, user_obj, call=None):
     kb.add(pbtn(t(uid, "goto_shop_btn"), callback_data="qr_goshop", style="success"))
 
     caption = t(uid, "auto_qr_caption_aba", amount=amount, ref=payment_id or "-")
-    if len(caption) > 1000:  # Telegram photo-caption limit = 1024 chars
+    if len(caption) > 1000:
         caption = caption[:1000] + "…"
 
-    # khmer-system.com ត្រឡប់ card_image ជា base64 (មានពេលមាន prefix "data:image/...;base64,"
-    # មានពេលគ្មាន prefix ទាល់តែសោះ — ជា raw base64 string ត្រង់ៗ) ជាជាង HTTP URL ធម្មតា។
-    # បើផ្ញើ string វែងនេះទៅ send_photo ត្រង់ៗ Telegram នឹងបដិសេធជា "MESSAGE_TOO_LONG"
-    # ព្រោះវែងហួស limit របស់ field URL/file_id។ ត្រូវ decode ជា raw bytes ជាមុនសិន
-    # មិនអាស្រ័យលើ prefix — គ្រាន់តែមើលថាតើវាជា http(s) URL ធម្មតា ឬអត់។
-    photo_payload = None
-    if card_image:
-        img_str = str(card_image).strip()
+    # Collect any image / KHQR string from response (field names vary)
+    card_image = (
+        data.get("card_image")
+        or data.get("qr_image")
+        or data.get("qrImage")
+        or data.get("image")
+        or data.get("image_url")
+        or data.get("qr_url")
+        or ""
+    )
+    qs = (
+        data.get("qr_string")
+        or data.get("qr_data")
+        or data.get("qrString")
+        or data.get("qrCode")
+        or data.get("khqr")
+        or data.get("qr")
+        or ""
+    )
+    print(
+        f"[_handle_deposit_aba] keys={list(data.keys())[:20]} "
+        f"img={'yes' if card_image else 'no'} qs={'yes' if qs else 'no'}",
+        flush=True,
+    )
+
+    def _bytes_photo(raw, name="aba_qr.png"):
+        if not raw:
+            return None
+        buf = io.BytesIO(raw if isinstance(raw, (bytes, bytearray)) else bytes(raw))
+        if buf.getbuffer().nbytes < 64:
+            return None
+        buf.seek(0)
+        buf.name = name
+        return buf
+
+    def _from_b64_or_url(img_str):
+        img_str = str(img_str or "").strip()
+        if not img_str:
+            return None
         if img_str.lower().startswith(("http://", "https://")):
-            photo_payload = img_str
-        else:
             try:
-                b64_part = img_str.split(",", 1)[1] if img_str.startswith("data:") else img_str
-                photo_payload = io.BytesIO(base64.b64decode(b64_part, validate=False))
-                photo_payload.name = "aba_payment.png"
+                rr = _http.get(img_str, timeout=(5, 20))
+                if rr.status_code == 200 and rr.content:
+                    return _bytes_photo(rr.content, "aba_url.png")
             except Exception as e:
-                print(f"[_handle_deposit_aba] base64 decode failed: {e}", flush=True)
-                photo_payload = None
-    # Fast local QR if API gave qr_string but no image
-    if photo_payload is None:
-        qs = (
-            data.get("qr_string")
-            or data.get("qr_data")
-            or data.get("qr")
-            or data.get("qrCode")
-            or ""
-        )
-        if qs:
-            try:
-                import qrcode
-                from io import BytesIO as _B
-                img = qrcode.make(str(qs))
-                buf = _B()
-                img.save(buf, format="PNG")
-                buf.seek(0)
-                buf.name = "aba_qr.png"
-                photo_payload = buf
-            except Exception as e:
-                print(f"[_handle_deposit_aba] local qr: {e}", flush=True)
+                print(f"[_handle_deposit_aba] download img: {e}", flush=True)
+            return None  # don't pass URL to Telegram — often fails
+        try:
+            b64_part = img_str.split(",", 1)[1] if img_str.startswith("data:") else img_str
+            raw = base64.b64decode(b64_part, validate=False)
+            return _bytes_photo(raw, "aba_b64.png")
+        except Exception as e:
+            print(f"[_handle_deposit_aba] b64: {e}", flush=True)
+            return None
+
+    def _from_qr_string(text):
+        text = str(text or "").strip()
+        if not text:
+            return None
+        # Prefer branded card generator already in bot
+        try:
+            buf = build_qr_image(
+                text,
+                amount=amount,
+                ref=str(payment_id or "")[-12:] or None,
+                label="ABA PayWay",
+                subtitle=STORE_NAME,
+                expires_min=max(1, int(globals().get("DEPOSIT_EXPIRE_SEC", 600) // 60)),
+            )
+            if buf:
+                if hasattr(buf, "seek"):
+                    buf.seek(0)
+                if not getattr(buf, "name", None):
+                    buf.name = "khqr_card.png"
+                return buf
+        except Exception as e:
+            print(f"[_handle_deposit_aba] build_qr_image: {e}", flush=True)
+        try:
+            import qrcode
+            img = qrcode.make(text)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            buf.seek(0)
+            buf.name = "aba_qr.png"
+            return buf
+        except Exception as e:
+            print(f"[_handle_deposit_aba] qrcode: {e}", flush=True)
+            return None
+
+    photo_payload = _from_b64_or_url(card_image)
+    if photo_payload is None and qs:
+        photo_payload = _from_qr_string(qs)
+    # Last resort: if only pay_url, still try encode as QR so user can scan something
+    if photo_payload is None and pay_url:
+        photo_payload = _from_qr_string(pay_url)
 
     sent_ok = False
-    if photo_payload:
+    if photo_payload is not None:
         try:
+            if hasattr(photo_payload, "seek"):
+                photo_payload.seek(0)
             bot.send_photo(chat_id, photo_payload, caption=caption, reply_markup=kb)
             sent_ok = True
         except Exception as e:
             print(f"[_handle_deposit_aba] send_photo failed: {e}", flush=True)
             notify_admin_error("_handle_deposit_aba send_photo", e)
+            # retry once with plain qrcode
+            if qs:
+                try:
+                    alt = _from_qr_string(qs)
+                    if alt:
+                        bot.send_photo(chat_id, alt, caption=caption, reply_markup=kb)
+                        sent_ok = True
+                except Exception as e2:
+                    print(f"[_handle_deposit_aba] send retry: {e2}", flush=True)
+
     if not sent_ok:
-        if pay_url:
-            bot.send_message(chat_id, caption, reply_markup=kb)
-        else:
+        # Always send text so user is not stuck with only "creating QR"
+        extra = ""
+        if qs:
+            extra = f"\n\n<code>{html.escape(str(qs)[:500])}</code>"
+        bot.send_message(
+            chat_id,
+            caption + extra + "\n\n⚠️ រូប QR មិនផ្ញើបាន — សូមចុចប៊ូតុង ឬស្កេនពីកម្មវិធីធនាគារ",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+        if not payment_id and not pay_url and not qs:
             _fail(t(uid, "deposit_no_qr_data"))
             return
 
