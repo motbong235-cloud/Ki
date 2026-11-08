@@ -1,3 +1,5 @@
 pyTelegramBotAPI==4.24.0
 Flask==3.0.3
-requests>=2.31.0\nqrcode[pil]>=7.4\nPillow>=10.0\n
+requests>=2.31.0
+qrcode[pil]>=7.4
+Pillow>=10.0
