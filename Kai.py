@@ -1895,114 +1895,78 @@ _last_aba_error = ""
 
 
 def aba_generate_qr(amount, username, _attempt=1):
-    """POST khmer-system generate-qr — payload MUST match working Porpor/Kai bots:
-    { api_key, merchant_id, username, amount } only (extra fields can break QR).
-    """
+    """Fast ABA QR create — minimal payload, short timeout, 1 quick retry only."""
     global _last_aba_error
     key = _aba_clean(ABA_API_KEY)
     mid = _aba_clean(ABA_MERCHANT_ID)
     if not key or not mid:
-        _last_aba_error = "ABA_API_KEY / ABA_MERCHANT_ID មិនបានកំណត់ (ឬមាន space/quotes ក្នុង env)"
-        print(f"[aba_generate_qr] {_last_aba_error}", flush=True)
+        _last_aba_error = "ABA_API_KEY / ABA_MERCHANT_ID មិនបានកំណត់"
         return None
-
-    max_try = int(os.environ.get("ABA_CREATE_RETRIES", "6") or 6)
-    read_timeout = int(os.environ.get("ABA_READ_TIMEOUT", "50") or 50)
 
     import re as _re
-    uname = str(username or "").strip().lstrip("@")
-    uname = _re.sub(r"[^a-zA-Z0-9_]", "", uname)[:32]
+    uname = _re.sub(r"[^a-zA-Z0-9_]", "", str(username or "").lstrip("@"))[:32]
     if len(uname) < 3:
-        uname = f"u{abs(hash(str(username) or str(time.time()))) % 10**9}"
-
+        uname = f"u{int(time.time()) % 10**9}"
     amt = round(float(amount), 2)
     if amt < 0.01:
-        _last_aba_error = "amount too small (min $0.01)"
+        _last_aba_error = "amount too small"
         return None
 
-    # Exact payload shape used by Porpor Topup (working production)
     payload = {
         "api_key": key,
         "merchant_id": mid,
         "username": uname,
         "amount": amt,
     }
-
-    urls = []
-    for u in (ABA_CREATE_URL, ABA_CREATE_URL_ALT):
-        u = (u or "").strip()
-        if u and u not in urls:
-            urls.append(u)
-
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
     }
+    # Primary first — alt only if primary hard-fails
+    urls = [ABA_CREATE_URL]
+    alt = (globals().get("ABA_CREATE_URL_ALT") or "").strip()
+    if alt and alt != ABA_CREATE_URL:
+        urls.append(alt)
 
     last_err = ""
     for url in urls:
         try:
-            print(
-                f"[aba_generate_qr] attempt={_attempt} url={url} uname={uname} amt={amt} keylen={len(key)} mid={mid[:4]}***",
-                flush=True,
-            )
-            r = _http.post(url, json=payload, headers=headers, timeout=(12, read_timeout))
+            r = _http.post(url, json=payload, headers=headers, timeout=(5, 15))
             try:
                 data = r.json()
             except Exception:
-                body = (r.text or "").strip()
-                last_err = f"HTTP {r.status_code} non-JSON from {url}: {body[:180]}"
-                print(f"[aba_generate_qr] {last_err}", flush=True)
+                last_err = f"HTTP {r.status_code} non-JSON"
                 continue
-
             if data.get("ok") and (
                 data.get("payment_id")
                 or data.get("qr_image")
                 or data.get("card_image")
                 or data.get("qr_string")
+                or data.get("qr")
             ):
                 return data
-
             code = str(data.get("code") or data.get("error") or "")
             msg = data.get("message") or data.get("error") or data
             last_err = f"HTTP {r.status_code} [{code}]: {msg}"
-            print(f"[aba_generate_qr] fail {last_err}", flush=True)
-
-            # Retry same URL on transient provider errors
-            retryable = (
-                r.status_code in (402, 408, 425, 429)
-                or r.status_code >= 500
+            # One fast retry only on 402 / 5xx
+            if _attempt < 2 and (
+                r.status_code in (402, 408, 429) or r.status_code >= 500
                 or "QR_GENERATION_FAILED" in code.upper()
-            )
-            if retryable and _attempt < max_try:
-                wait = 3.0 * _attempt
-                print(f"[aba_generate_qr] sleep {wait:.0f}s then retry", flush=True)
-                time.sleep(wait)
-                # rotate username slightly
-                alt = f"u{uname}"[-32:] if _attempt % 2 else f"tg{uname}"[-32:]
-                return aba_generate_qr(amount, alt, _attempt=_attempt + 1)
-            # try next URL if any
-            continue
+            ):
+                time.sleep(0.7)
+                return aba_generate_qr(amount, f"u{uname}"[-32:], _attempt=_attempt + 1)
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             last_err = f"{type(e).__name__}: {e}"
-            print(f"[aba_generate_qr] {last_err}", flush=True)
-            if _attempt < max_try:
-                time.sleep(2.0 * _attempt)
+            if _attempt < 2:
+                time.sleep(0.5)
                 return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
-            print(f"[aba_generate_qr] {last_err}", flush=True)
 
-    if "QR_GENERATION_FAILED" in str(last_err).upper() or "402" in str(last_err):
+    if "QR_GENERATION" in str(last_err).upper() or "402" in str(last_err):
         _last_aba_error = (
-            f"{last_err}\n"
-            "→ ពិនិត្យ wallet balance លើ khmer-system.com/operator\n"
-            "→ Profile Key + Merchant ID ត្រូវគ្នា (គ្មាន space/quotes)\n"
-            "→ Merchant ត្រូវ enable ABA PayWay"
+            f"{last_err}\n→ Wallet / merchant លើ khmer-system.com"
         )
     else:
         _last_aba_error = last_err or "unknown"
@@ -4216,6 +4180,27 @@ def _handle_deposit_aba(uid, chat_id, amount, user_obj, call=None):
             except Exception as e:
                 print(f"[_handle_deposit_aba] base64 decode failed: {e}", flush=True)
                 photo_payload = None
+    # Fast local QR if API gave qr_string but no image
+    if photo_payload is None:
+        qs = (
+            data.get("qr_string")
+            or data.get("qr_data")
+            or data.get("qr")
+            or data.get("qrCode")
+            or ""
+        )
+        if qs:
+            try:
+                import qrcode
+                from io import BytesIO as _B
+                img = qrcode.make(str(qs))
+                buf = _B()
+                img.save(buf, format="PNG")
+                buf.seek(0)
+                buf.name = "aba_qr.png"
+                photo_payload = buf
+            except Exception as e:
+                print(f"[_handle_deposit_aba] local qr: {e}", flush=True)
 
     sent_ok = False
     if photo_payload:
