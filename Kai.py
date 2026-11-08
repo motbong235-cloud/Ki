@@ -89,11 +89,27 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "0"))
 # --- ABA PayWay (តាម KHMER SYSTEM — khmer-system.com) --- deposit ស្វ័យប្រវត្តិ
 # ត្រូវការ Profile Key + Merchant ID ដែលយកបានពី khmer-system.com/operator/profile
-ABA_API_KEY = os.environ.get("ABA_API_KEY", "")       # Profile Key (ឧ. PK_xxxxxxxx)
-ABA_MERCHANT_ID = os.environ.get("ABA_MERCHANT_ID", "")  # Merchant ID (ឧ. r72mCt)
-ABA_BASE_URL = os.environ.get("ABA_BASE_URL", "https://khmer-system.com")
+def _aba_clean(v):
+    """Strip spaces/quotes/zero-width chars from Render env pastes."""
+    return (
+        str(v or "")
+        .replace("\u200b", "")
+        .replace("\ufeff", "")
+        .strip()
+        .strip("\"'`")
+        .replace(" ", "")
+        .replace("\n", "")
+        .replace("\r", "")
+        .replace("\t", "")
+    )
+
+ABA_API_KEY = _aba_clean(os.environ.get("ABA_API_KEY", ""))       # Profile Key (ឧ. PK_xxxxxxxx)
+ABA_MERCHANT_ID = _aba_clean(os.environ.get("ABA_MERCHANT_ID", ""))  # Merchant ID (ឧ. r72mCt)
+ABA_BASE_URL = (os.environ.get("ABA_BASE_URL", "https://khmer-system.com") or "https://khmer-system.com").rstrip("/")
 ABA_CREATE_URL = os.environ.get("ABA_CREATE_URL", f"{ABA_BASE_URL}/aba-api/generate-qr")
 ABA_CHECK_URL = os.environ.get("ABA_CHECK_URL", f"{ABA_BASE_URL}/aba-api/check-payment")
+# Alternate endpoint some merchants use
+ABA_CREATE_URL_ALT = os.environ.get("ABA_CREATE_URL_ALT", f"{ABA_BASE_URL}/aba")
 STORE_NAME = os.environ.get("STORE_NAME", "Eing StoreKh")  # ឈ្មោះហាង — hardcode ជា default តែអាច override តាម env
 # ID របស់ channel/group ដែលចង់ឲ្យ bot ផ្ញើសារជូនដំណឹងស្វ័យប្រវត្តិ ពេលមាន deposit
 # ឬ order ជោគជ័យ។ ដាក់ hardcode ត្រង់នេះផ្ទាល់ (negative number ឧ. -1001234567890
@@ -1527,6 +1543,38 @@ def has_aba_payway():
     return bool(ABA_API_KEY and ABA_MERCHANT_ID) and is_payment_method_enabled("aba")
 
 
+
+def cmd_abadiag(message):
+    """Admin: test ABA keys without creating user deposit."""
+    if message.from_user.id != ADMIN_ID:
+        return
+    key = _aba_clean(ABA_API_KEY)
+    mid = _aba_clean(ABA_MERCHANT_ID)
+    bot.send_message(
+        message.chat.id,
+        f"🔑 key len={len(key)} prefix=<code>{html.escape(key[:6])}…</code>\n"
+        f"🏪 merchant=<code>{html.escape(mid)}</code>\n"
+        f"🌐 create=<code>{html.escape(ABA_CREATE_URL)}</code>\n"
+        f"⏳ testing $0.10 …",
+        parse_mode="HTML",
+    )
+    data = aba_generate_qr(0.10, f"diag{int(time.time())%100000}")
+    if data:
+        bot.send_message(
+            message.chat.id,
+            f"✅ OK payment_id=<code>{html.escape(str(data.get('payment_id') or ''))}</code>\n"
+            f"keys: {', '.join(list(data.keys())[:12])}",
+            parse_mode="HTML",
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            f"❌ FAIL\n<code>{html.escape(str(_last_aba_error)[:800])}</code>",
+            parse_mode="HTML",
+        )
+
+
+
 def load_pending_deposits():
     return _load(PENDING_DEPOSITS_FILE, {})
 
@@ -1847,103 +1895,119 @@ _last_aba_error = ""
 
 
 def aba_generate_qr(amount, username, _attempt=1):
-    """Create ABA KHQR via khmer-system.com /aba-api/generate-qr.
-    Retries on 402 QR_GENERATION_FAILED / 5xx / timeout (provider often flaky).
+    """POST khmer-system generate-qr — payload MUST match working Porpor/Kai bots:
+    { api_key, merchant_id, username, amount } only (extra fields can break QR).
     """
     global _last_aba_error
-    if not ABA_API_KEY or not ABA_MERCHANT_ID:
-        _last_aba_error = "ABA_API_KEY / ABA_MERCHANT_ID មិនបានកំណត់ក្នុង Render environment variables"
+    key = _aba_clean(ABA_API_KEY)
+    mid = _aba_clean(ABA_MERCHANT_ID)
+    if not key or not mid:
+        _last_aba_error = "ABA_API_KEY / ABA_MERCHANT_ID មិនបានកំណត់ (ឬមាន space/quotes ក្នុង env)"
         print(f"[aba_generate_qr] {_last_aba_error}", flush=True)
         return None
 
-    max_try = int(os.environ.get("ABA_CREATE_RETRIES", "5") or 5)
-    read_timeout = int(os.environ.get("ABA_READ_TIMEOUT", "45") or 45)
+    max_try = int(os.environ.get("ABA_CREATE_RETRIES", "6") or 6)
+    read_timeout = int(os.environ.get("ABA_READ_TIMEOUT", "50") or 50)
 
-    # Safe username: never pass Telegram @handle — provider rejects / QR fails
     import re as _re
     uname = str(username or "").strip().lstrip("@")
     uname = _re.sub(r"[^a-zA-Z0-9_]", "", uname)[:32]
-    if not uname or uname.lower() in ("admin", "null", "none", "undefined"):
-        uname = f"u{int(time.time()) % 10**9}"
-    bill = f"ki{uname}_{int(time.time())}_{_attempt}"
+    if len(uname) < 3:
+        uname = f"u{abs(hash(str(username) or str(time.time()))) % 10**9}"
 
-    try:
-        r = _http.post(
-            ABA_CREATE_URL,
-            json={
-                "api_key": ABA_API_KEY,
-                "merchant_id": ABA_MERCHANT_ID,
-                "username": uname,
-                "amount": round(float(amount), 2),
-                "bill_id": bill,
-                "order_id": bill,
-                "reference": bill,
-            },
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0 (compatible; KiBot/1.0)",
-            },
-            timeout=(10, read_timeout),
-        )
+    amt = round(float(amount), 2)
+    if amt < 0.01:
+        _last_aba_error = "amount too small (min $0.01)"
+        return None
+
+    # Exact payload shape used by Porpor Topup (working production)
+    payload = {
+        "api_key": key,
+        "merchant_id": mid,
+        "username": uname,
+        "amount": amt,
+    }
+
+    urls = []
+    for u in (ABA_CREATE_URL, ABA_CREATE_URL_ALT):
+        u = (u or "").strip()
+        if u and u not in urls:
+            urls.append(u)
+
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+    }
+
+    last_err = ""
+    for url in urls:
         try:
-            data = r.json()
-        except Exception:
-            body = r.text.strip()
-            if body.lower().startswith(("<!doctype", "<html")):
-                _last_aba_error = (
-                    f"HTTP {r.status_code} — server ត្រឡប់ HTML (WAF/endpoint ខុស) មិនមែន JSON"
-                )
-            else:
-                _last_aba_error = f"HTTP {r.status_code} (non-JSON): {body[:300]}"
-            print(f"[aba_generate_qr] {_last_aba_error}", flush=True)
-            if _attempt < max_try and r.status_code >= 500:
-                time.sleep(1.5 * _attempt)
-                return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
-            return None
-
-        if data.get("ok"):
-            return data
-
-        code = str(data.get("code") or data.get("error") or "")
-        msg = data.get("message") or data.get("error") or data
-        _last_aba_error = f"HTTP {r.status_code} [{code or '?'}]: {msg}"
-        print(f"[aba_generate_qr] failed attempt={_attempt}: {_last_aba_error}", flush=True)
-
-        retryable = (
-            r.status_code >= 500
-            or r.status_code in (402, 408, 425, 429)
-            or "QR_GENERATION_FAILED" in code.upper()
-            or "qr_generation" in str(msg).lower()
-            or "wallet" in str(msg).lower()
-        )
-        if retryable and _attempt < max_try:
-            wait = 2.5 * _attempt + (2.0 if r.status_code == 402 else 0)
-            alt = f"u{uname}" if _attempt % 2 else f"tg{uname}"
-            print(f"[aba_generate_qr] retry in {wait:.1f}s uname={alt}", flush=True)
-            time.sleep(wait)
-            return aba_generate_qr(amount, alt, _attempt=_attempt + 1)
-
-        if "QR_GENERATION_FAILED" in code.upper() or r.status_code == 402:
-            _last_aba_error = (
-                f"HTTP 402 [QR_GENERATION_FAILED]: could not create QR "
-                f"(check wallet balance / merchant config on khmer-system.com). raw={msg}"
+            print(
+                f"[aba_generate_qr] attempt={_attempt} url={url} uname={uname} amt={amt} keylen={len(key)} mid={mid[:4]}***",
+                flush=True,
             )
-        return None
-    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-        _last_aba_error = f"{type(e).__name__}: {e}"
-        print(f"[aba_generate_qr] transient: {_last_aba_error}", flush=True)
-        if _attempt < max_try:
-            time.sleep(2.0 * _attempt)
-            return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
-        return None
-    except Exception as e:
-        _last_aba_error = f"{type(e).__name__}: {e}"
-        print(f"[aba_generate_qr] error: {_last_aba_error}", flush=True)
-        if _attempt < max_try:
-            time.sleep(1.5 * _attempt)
-            return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
-        return None
+            r = _http.post(url, json=payload, headers=headers, timeout=(12, read_timeout))
+            try:
+                data = r.json()
+            except Exception:
+                body = (r.text or "").strip()
+                last_err = f"HTTP {r.status_code} non-JSON from {url}: {body[:180]}"
+                print(f"[aba_generate_qr] {last_err}", flush=True)
+                continue
+
+            if data.get("ok") and (
+                data.get("payment_id")
+                or data.get("qr_image")
+                or data.get("card_image")
+                or data.get("qr_string")
+            ):
+                return data
+
+            code = str(data.get("code") or data.get("error") or "")
+            msg = data.get("message") or data.get("error") or data
+            last_err = f"HTTP {r.status_code} [{code}]: {msg}"
+            print(f"[aba_generate_qr] fail {last_err}", flush=True)
+
+            # Retry same URL on transient provider errors
+            retryable = (
+                r.status_code in (402, 408, 425, 429)
+                or r.status_code >= 500
+                or "QR_GENERATION_FAILED" in code.upper()
+            )
+            if retryable and _attempt < max_try:
+                wait = 3.0 * _attempt
+                print(f"[aba_generate_qr] sleep {wait:.0f}s then retry", flush=True)
+                time.sleep(wait)
+                # rotate username slightly
+                alt = f"u{uname}"[-32:] if _attempt % 2 else f"tg{uname}"[-32:]
+                return aba_generate_qr(amount, alt, _attempt=_attempt + 1)
+            # try next URL if any
+            continue
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            last_err = f"{type(e).__name__}: {e}"
+            print(f"[aba_generate_qr] {last_err}", flush=True)
+            if _attempt < max_try:
+                time.sleep(2.0 * _attempt)
+                return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            print(f"[aba_generate_qr] {last_err}", flush=True)
+
+    if "QR_GENERATION_FAILED" in str(last_err).upper() or "402" in str(last_err):
+        _last_aba_error = (
+            f"{last_err}\n"
+            "→ ពិនិត្យ wallet balance លើ khmer-system.com/operator\n"
+            "→ Profile Key + Merchant ID ត្រូវគ្នា (គ្មាន space/quotes)\n"
+            "→ Merchant ត្រូវ enable ABA PayWay"
+        )
+    else:
+        _last_aba_error = last_err or "unknown"
+    return None
+
 
 
 def _build_aba_app_deeplink(data):
@@ -4931,6 +4995,11 @@ def start_keep_alive():
 # ------------------------------------------------------------------
 # MAIN
 # ------------------------------------------------------------------
+@bot.message_handler(commands=["abadiag", "paytest"])
+def _reg_abadiag(message):
+    cmd_abadiag(message)
+
+
 if __name__ == "__main__":
     if not BOT_TOKEN:
         raise SystemExit("❌ សូម set environment variable BOT_TOKEN ជាមុនសិន")
