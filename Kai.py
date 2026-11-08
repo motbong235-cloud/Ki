@@ -108,8 +108,11 @@ ABA_MERCHANT_ID = _aba_clean(os.environ.get("ABA_MERCHANT_ID", ""))  # Merchant 
 ABA_BASE_URL = (os.environ.get("ABA_BASE_URL", "https://khmer-system.com") or "https://khmer-system.com").rstrip("/")
 ABA_CREATE_URL = os.environ.get("ABA_CREATE_URL", f"{ABA_BASE_URL}/aba-api/generate-qr")
 ABA_CHECK_URL = os.environ.get("ABA_CHECK_URL", f"{ABA_BASE_URL}/aba-api/check-payment")
-# Alternate endpoint some merchants use
-ABA_CREATE_URL_ALT = os.environ.get("ABA_CREATE_URL_ALT", f"{ABA_BASE_URL}/aba")
+# Never default to /aba (Cloudflare 403 HTML page)
+ABA_CREATE_URL_ALT = os.environ.get("ABA_CREATE_URL_ALT", "")
+if not ABA_CREATE_URL or ABA_CREATE_URL.rstrip("/").endswith("/aba") or "/aba-api/" not in ABA_CREATE_URL:
+    ABA_CREATE_URL = f"{ABA_BASE_URL}/aba-api/generate-qr"
+
 STORE_NAME = os.environ.get("STORE_NAME", "Eing StoreKh")  # ឈ្មោះហាង — hardcode ជា default តែអាច override តាម env
 # ID របស់ channel/group ដែលចង់ឲ្យ bot ផ្ញើសារជូនដំណឹងស្វ័យប្រវត្តិ ពេលមាន deposit
 # ឬ order ជោគជ័យ។ ដាក់ hardcode ត្រង់នេះផ្ទាល់ (negative number ឧ. -1001234567890
@@ -1895,7 +1898,7 @@ _last_aba_error = ""
 
 
 def aba_generate_qr(amount, username, _attempt=1):
-    """Fast ABA QR create — minimal payload, short timeout, 1 quick retry only."""
+    """Create QR via POST /aba-api/generate-qr only (never /aba — Cloudflare 403 HTML)."""
     global _last_aba_error
     key = _aba_clean(ABA_API_KEY)
     mid = _aba_clean(ABA_MERCHANT_ID)
@@ -1912,6 +1915,11 @@ def aba_generate_qr(amount, username, _attempt=1):
         _last_aba_error = "amount too small"
         return None
 
+    # Force correct endpoint even if env points at broken /aba
+    url = (ABA_CREATE_URL or "").strip()
+    if not url or url.rstrip("/").endswith("/aba") or "/aba-api/" not in url:
+        url = f"{ABA_BASE_URL.rstrip('/')}/aba-api/generate-qr"
+
     payload = {
         "api_key": key,
         "merchant_id": mid,
@@ -1921,56 +1929,64 @@ def aba_generate_qr(amount, username, _attempt=1):
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Origin": "https://khmer-system.com",
+        "Referer": "https://khmer-system.com/",
     }
-    # Primary first — alt only if primary hard-fails
-    urls = [ABA_CREATE_URL]
-    alt = (globals().get("ABA_CREATE_URL_ALT") or "").strip()
-    if alt and alt != ABA_CREATE_URL:
-        urls.append(alt)
 
-    last_err = ""
-    for url in urls:
-        try:
-            r = _http.post(url, json=payload, headers=headers, timeout=(5, 15))
-            try:
-                data = r.json()
-            except Exception:
-                last_err = f"HTTP {r.status_code} non-JSON"
-                continue
-            if data.get("ok") and (
-                data.get("payment_id")
-                or data.get("qr_image")
-                or data.get("card_image")
-                or data.get("qr_string")
-                or data.get("qr")
-            ):
-                return data
-            code = str(data.get("code") or data.get("error") or "")
-            msg = data.get("message") or data.get("error") or data
-            last_err = f"HTTP {r.status_code} [{code}]: {msg}"
-            # One fast retry only on 402 / 5xx
-            if _attempt < 2 and (
-                r.status_code in (402, 408, 429) or r.status_code >= 500
-                or "QR_GENERATION_FAILED" in code.upper()
-            ):
-                time.sleep(0.7)
-                return aba_generate_qr(amount, f"u{uname}"[-32:], _attempt=_attempt + 1)
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-            last_err = f"{type(e).__name__}: {e}"
+    try:
+        r = _http.post(url, json=payload, headers=headers, timeout=(6, 18))
+        body = (r.text or "").strip()
+        # Cloudflare / WAF HTML
+        if body.lower().startswith(("<!doctype", "<html")) or r.status_code == 403 and "cloudflare" in body.lower():
+            _last_aba_error = (
+                f"HTTP {r.status_code} — gateway blocked (HTML). "
+                f"Check ABA_CREATE_URL is .../aba-api/generate-qr (not /aba)"
+            )
+            # One retry with explicit generate-qr URL
             if _attempt < 2:
-                time.sleep(0.5)
+                time.sleep(0.4)
+                globals()["ABA_CREATE_URL"] = f"{ABA_BASE_URL.rstrip('/')}/aba-api/generate-qr"
                 return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
-        except Exception as e:
-            last_err = f"{type(e).__name__}: {e}"
+            return None
+        try:
+            data = r.json()
+        except Exception:
+            _last_aba_error = f"HTTP {r.status_code} non-JSON: {body[:160]}"
+            return None
 
-    if "QR_GENERATION" in str(last_err).upper() or "402" in str(last_err):
-        _last_aba_error = (
-            f"{last_err}\n→ Wallet / merchant លើ khmer-system.com"
-        )
-    else:
-        _last_aba_error = last_err or "unknown"
-    return None
+        if data.get("ok") and (
+            data.get("payment_id")
+            or data.get("qr_image")
+            or data.get("card_image")
+            or data.get("qr_string")
+            or data.get("qr")
+        ):
+            return data
+
+        code = str(data.get("code") or data.get("error") or "")
+        msg = data.get("message") or data.get("error") or data
+        _last_aba_error = f"HTTP {r.status_code} [{code}]: {msg}"
+
+        if _attempt < 2 and (
+            r.status_code in (402, 408, 429) or r.status_code >= 500
+            or "QR_GENERATION_FAILED" in code.upper()
+        ):
+            time.sleep(0.8)
+            return aba_generate_qr(amount, f"u{uname}"[-32:], _attempt=_attempt + 1)
+        return None
+    except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+        _last_aba_error = f"{type(e).__name__}: {e}"
+        if _attempt < 2:
+            time.sleep(0.5)
+            return aba_generate_qr(amount, uname, _attempt=_attempt + 1)
+        return None
+    except Exception as e:
+        _last_aba_error = f"{type(e).__name__}: {e}"
+        return None
 
 
 
@@ -4103,15 +4119,28 @@ def _handle_deposit_aba(uid, chat_id, amount, user_obj, call=None):
         _notify_deposit_already_pending(uid, chat_id, pending_rec, call=call)
         return
 
-    def _fail(err_text):
-        if call:
-            # Telegram limits callback-query alert text to 200 chars — err_text (Khmer
-            # header + raw API error detail) can easily exceed that and crash uncaught.
-            alert_text = err_text if len(err_text) <= 200 else err_text[:197] + "…"
+    # Answer callback immediately so Telegram stops the spinning "loading" on the button
+    if call:
+        try:
+            bot.answer_callback_query(call.id, "⏳ កំពុងបង្កើត QR…")
+        except Exception:
+            pass
+
+    wait_msg = None
+    try:
+        wait_msg = bot.send_message(chat_id, "⏳ <b>កំពុងបង្កើត QR…</b>", parse_mode="HTML")
+    except Exception:
+        pass
+
+    def _clear_wait():
+        if wait_msg:
             try:
-                bot.answer_callback_query(call.id, alert_text, show_alert=True)
-            except Exception as e:
-                print(f"[_handle_deposit_aba] answer_callback_query failed: {e}", flush=True)
+                bot.delete_message(chat_id, wait_msg.message_id)
+            except Exception:
+                pass
+
+    def _fail(err_text):
+        _clear_wait()
         retry_kb = types.InlineKeyboardMarkup()
         retry_kb.add(pbtn(
             t(uid, "retry_btn"), callback_data=f"paym_aba_{amount}", style="primary"
@@ -4138,6 +4167,7 @@ def _handle_deposit_aba(uid, chat_id, amount, user_obj, call=None):
         _fail(t(uid, "qr_create_failed_aba", detail=html.escape(_last_aba_error[:180])))
         return
 
+    _clear_wait()
     payment_id = data.get("payment_id", "")
     card_image = data.get("card_image") or data.get("qr_image")
     pay_url = data.get("pay_url")
